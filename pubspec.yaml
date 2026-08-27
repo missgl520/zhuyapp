@@ -1,0 +1,29 @@
+name: zhuyapp
+description: 竹芽 - AI音乐创作伴侣
+publish_to: 'none'
+version: 1.0.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_animate: ^4.5.0
+  cupertino_icons: ^1.0.8
+  http: ^1.2.0
+  local_auth: ^2.3.0
+  # morphnext: ^1.0.0  # TODO: 升级 Dart SDK 到 >=3.9.0 后启用（图标变形动画，GitHub: KickNext/morphnext）
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/
+    - assets/dog_ip_cream.jpg
+  fonts:
