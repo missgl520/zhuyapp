@@ -252,6 +252,62 @@ class PetApiService {
   String get pushStreamUrl => '$_baseUrl/push/stream/$_userId';
 
   void dispose() => _client.close();
+
+  // ═══════════════════════════════════════════════
+  // SSE 流式歌词订阅
+  // ═══════════════════════════════════════════════
+  Stream<LyricsStreamEvent> streamLyrics(String taskId) async* {
+    final url = Uri.parse('$_baseUrl/lyrics/stream/$taskId');
+    final req = http.Request('GET', url);
+    req.headers['Accept'] = 'text/event-stream';
+    req.headers['Cache-Control'] = 'no-cache';
+    final stream = await _client.send(req);
+    String buffer = '';
+    await for (final chunk in stream.stream) {
+      buffer += utf8.decode(chunk);
+      final lines = buffer.split('\n');
+      buffer = lines.removeLast();
+      for (final line in lines) {
+        if (!line.startsWith('data: ')) continue;
+        final jsonStr = line.substring(6).trim();
+        if (jsonStr.isEmpty) continue;
+        try {
+          yield LyricsStreamEvent.fromJson(jsonDecode(jsonStr));
+        } catch (_) {}
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════
+// SSE 流事件
+// ═══════════════════════════════════════════════
+class LyricsStreamEvent {
+  final String event; // 'progress' | 'done' | 'failed' | 'error' | 'heartbeat'
+  final int? progress;
+  final String? msg;
+  final AsyncLyricsResult? result;
+  final String? error;
+
+  LyricsStreamEvent({
+    required this.event,
+    this.progress,
+    this.msg,
+    this.result,
+    this.error,
+  });
+
+  factory LyricsStreamEvent.fromJson(Map<String, dynamic> j) => LyricsStreamEvent(
+    event: j['event'] ?? '',
+    progress: j['progress'],
+    msg: j['msg'],
+    result: j['result'] != null ? AsyncLyricsResult.fromJson(j['result']) : null,
+    error: j['error'],
+  );
+
+  bool get isDone => event == 'done';
+  bool get isFailed => event == 'failed';
+  bool get isProgress => event == 'progress';
 }
 
 // ═══════════════════════════════════════════════
