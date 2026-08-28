@@ -145,9 +145,7 @@ flutter:
     - assets/logo.png
     - assets/logo_mascot.png
     - assets/logo/
-    # 启动页人物（旧保留）
-    - assets/splash_char.png
-    - assets/splash_char2.png
+    # 启动页人物（透明版，discover_page 使用；非透明版已作为无用资源移除）
     - assets/splash_char_transparent.png
     # 3D 验证用测试人形（Khronos CesiumMan，自带 walk 动画，Apache-2.0 免费）
     - assets/vrm_test/CesiumMan.glb
