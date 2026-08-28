@@ -118,6 +118,11 @@ COL = {
 # ---------- 狗子部件定义（改进比例：大头短身小短腿） ----------
 # 坐标系：y向上，z向前（狗子面朝+z方向）
 # 整体高度约 0.7m，头身比约 1:1.2（卡通风格）
+# 每个部件 = (name, geom, color_key, trans, [scale_x, scale_y, scale_z])
+# 关键修复（穿模根因）：原 body 是「薄壳立方体」——只有 6 个外表面、无体积，
+# 内部又嵌了 box 状的 back/belly/collar，侧面看直接透视看到背景、红色项圈透出。
+# 现改为：body 用 sphere + 非均匀缩放做成「实心椭球」（封闭凸面，任意角度只看到外表面，
+# 不会透出背景）；back/belly/chest_fluff/collar 全部「贴在身体表面、略凸出」，不再嵌入空壳内部。
 parts = [
     # ===== 头部（大而圆，卡通风格）=====
     ('head',           sphere(0.18, seg=18),              'fur_light',(0, 0.52, 0.18)),
@@ -149,18 +154,18 @@ parts = [
     ('ear_R',          box(0.06, 0.18, 0.04),             'fur_dark', ( 0.16, 0.50, 0.15)),
     ('ear_inner_R',    box(0.035, 0.12, 0.025),           'ear_inner',( 0.16, 0.48, 0.17)),
 
-    # ===== 身体（短而圆润）=====
-    ('body',           box(0.28, 0.24, 0.38),             'fur',      (0, 0.30, -0.02)),
-    # 背部（深金色，模拟色块阴影）
-    ('back',           box(0.26, 0.06, 0.34),             'fur_dark', (0, 0.40, -0.02)),
-    # 胸口/肚子（米白色）
-    ('belly',          box(0.22, 0.16, 0.30),             'belly',    (0, 0.26, 0.04)),
-    # 胸部白毛团
-    ('chest_fluff',    sphere(0.10, seg=14),              'belly',    (0, 0.38, 0.16)),
+    # ===== 身体（实心椭球：sphere(0.14) 非均匀缩放到原 box 尺寸，杜绝空壳透视/穿模）=====
+    ('body',           sphere(0.14, seg=20),              'fur',      (0, 0.30, -0.02), [1.0, 0.86, 1.36]),
+    # 背阴影（深金，贴在背上、略凸出表面）
+    ('back',           sphere(0.12, seg=14),              'fur_dark', (0, 0.40, -0.04), [1.1, 0.5, 1.1]),
+    # 肚子/胸口（米白，贴在前下方、略凸出）
+    ('belly',          sphere(0.11, seg=14),              'belly',    (0, 0.25, 0.15), [0.95, 0.8, 0.45]),
+    # 胸部白毛团（贴在前上方、略凸出）
+    ('chest_fluff',    sphere(0.09, seg=14),              'belly',    (0, 0.38, 0.15)),
 
-    # ===== 项圈 + 吊牌 =====
-    ('collar',         cylinder(0.16, 0.045, seg=16, top_at_zero=False), 'collar', (0, 0.44, 0.10)),
-    ('tag',            sphere(0.03, seg=10),               'tag',      (0, 0.40, 0.22)),
+    # ===== 项圈 + 吊牌（环在脖颈处，整体凸出身体表面）=====
+    ('collar',         cylinder(0.12, 0.05, seg=16, top_at_zero=False), 'collar', (0, 0.41, 0.0)),
+    ('tag',            sphere(0.028, seg=10),              'tag',      (0, 0.37, 0.13)),
 
     # ===== 前腿（短而粗）=====
     ('legFL',          cylinder(0.05, 0.22, seg=12),      'fur',      (-0.09, 0.20, 0.14)),
@@ -230,11 +235,13 @@ for k, v in COL.items():
     mat_index[k] = len(materials) - 1
 
 # 部件 -> mesh + node
-for name, geom, color_key, trans in parts:
+for entry in parts:
+    name, geom, color_key, trans = entry[0], entry[1], entry[2], entry[3]
+    scale = entry[4] if len(entry) > 4 else [1, 1, 1]
     pos, nrm, idx = geom
     mesh_idx = add_mesh(pos, nrm, idx, mat_index[color_key])
     ni = len(nodes)
-    nodes.append({'mesh': mesh_idx, 'translation': list(trans), 'rotation': [0,0,0,1]})
+    nodes.append({'mesh': mesh_idx, 'translation': list(trans), 'scale': list(scale), 'rotation': [0,0,0,1]})
     node_by_name[name] = ni
 
 # ---------- 动画（改进版：更自然的走路+摇尾巴+呼吸） ----------
