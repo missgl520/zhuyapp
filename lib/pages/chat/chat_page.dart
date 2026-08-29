@@ -11,7 +11,6 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_live2d/flutter_live2d.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../settings/settings_sheet.dart';
@@ -19,11 +18,8 @@ import '../settings/menu_panel.dart';
 import '../../providers/app_providers_legacy.dart' as old_msg;
 import '../../presentation/providers/app_providers.dart' as old_providers;
 import '../../domain/entities/entities.dart' as entities;
-import '../../presentation/providers/app_providers.dart' as new_providers;
 import '../../presentation/providers/chat_provider.dart';
 import '../../domain/entities/emotion.dart';
-import '../../widgets/live2d_controller.dart';
-import '../../widgets/live2d_widget.dart';
 import '../../widgets/vrm_avatar_view.dart';
 import '../../widgets/voice_button.dart';
 import '../../widgets/image_picker_button.dart';
@@ -60,11 +56,6 @@ class _ChatPageState extends ConsumerState<ChatPage>
         });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // 初始化 Live2D（仅在使用 2D 角色时；3D 人形不需要）
-      if (!kUseVrmAvatar) {
-        ref.read(old_providers.live2dControllerProvider).init();
-      }
-
       // 新架构：监听 ChatNotifier 状态
       ref.listenManual(chatNotifierProvider, (_, state) {
         if (state.errorMessage != null ||
@@ -74,16 +65,6 @@ class _ChatPageState extends ConsumerState<ChatPage>
           _thinkingController.stop();
         }
         _scrollToBottom();
-      });
-
-      // 新架构：监听对话状态，同步 Live2D
-      ref.listenManual(conversationStatusProvider, (_, status) {
-        _syncLive2DStatus(status);
-      });
-
-      // 新架构：监听情绪变化，同步 Live2D 表情
-      ref.listenManual(currentEmotionProvider, (_, emotion) {
-        _syncLive2DEmotion(emotion?.emotion ?? 'neutral');
       });
 
       // 旧架构：语音识别结果
@@ -116,17 +97,15 @@ class _ChatPageState extends ConsumerState<ChatPage>
 
   /// 触发竹笌回复的语音朗读（语音陪聊核心能力）。
   /// - 按设置页的 TTS 模式选择 MiniMax / 系统 TTS；
-  /// - MiniMax 未配置或失败时自动降级到系统 TTS，保证一定出声；
-  /// - 朗读期间同步 Live2D 的「说话」动画。
+  /// - MiniMax 未配置或失败时自动降级到系统 TTS，保证一定出声。
+  ///
+  /// 说明：3D 角色的表现由 VrmAvatarView 内嵌的动画剪辑驱动，
+  /// 不再需要像旧版 Live2D 那样在此同步口型与状态。
   Future<void> _speakReply(String text, {String? emotion}) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
     final ttsEnabled = ref.read(old_providers.ttsEnabledProvider);
     if (!ttsEnabled) return;
-
-    final l2dCtrl = ref.read(old_providers.live2dControllerProvider);
-    l2dCtrl.setStatus(ZhuaLive2DStatus.speaking);
-    l2dCtrl.startLipSync(); // TTS 朗读期间驱动 Live2D 唇形同步（嘴巴随说话开合）
 
     final mode = ref.read(old_providers.ttsModeProvider);
     try {
@@ -144,44 +123,6 @@ class _ChatPageState extends ConsumerState<ChatPage>
       }
     } catch (_) {
       // 朗读失败不影响对话完整性
-    } finally {
-      l2dCtrl.stopLipSync(); // 停止唇形同步并闭嘴复位
-      l2dCtrl.setStatus(ZhuaLive2DStatus.idle);
-    }
-  }
-
-  // ━━━ Live2D 同步 ━━━
-
-  void _syncLive2DStatus(ConversationStatus status) {
-    final ctrl = ref.read(old_providers.live2dControllerProvider);
-    switch (status) {
-      case ConversationStatus.idle:
-        // 空闲时强制恢复到待机常态：停止唇形同步、闭嘴、回默认表情、重播 Idle。
-        ctrl.resetToIdle();
-      case ConversationStatus.thinking:
-        ctrl.setStatus(ZhuaLive2DStatus.thinking);
-      case ConversationStatus.writing:
-        ctrl.setStatus(ZhuaLive2DStatus.thinking);
-      case ConversationStatus.speaking:
-        ctrl.setStatus(ZhuaLive2DStatus.speaking);
-    }
-  }
-
-  void _syncLive2DEmotion(String emotion) {
-    final ctrl = ref.read(old_providers.live2dControllerProvider);
-    switch (emotion) {
-      case 'happy':
-        ctrl.setEmotion('happy');
-      case 'sad':
-        ctrl.setEmotion('sad');
-      case 'angry':
-        ctrl.setEmotion('angry');
-      case 'surprised':
-        ctrl.setEmotion('surprised');
-      case 'anxious':
-        ctrl.setEmotion('anxious');
-      default:
-        ctrl.setEmotion('neutral');
     }
   }
 
@@ -249,32 +190,28 @@ class _ChatPageState extends ConsumerState<ChatPage>
     final chatState = ref.watch(chatNotifierProvider);
     final status = ref.watch(conversationStatusProvider);
     final isDark = ref.watch(old_providers.themeProvider);
-    final l2dCtrl = ref.watch(old_providers.live2dControllerProvider);
-    final Live2DViewController live2dViewController = l2dCtrl.viewController;
 
     final messages = chatState.messages;
 
     return Scaffold(
-      // 聊天页背景透明，让 Live2D 平台视图作为全屏底层透出来，
+      // 聊天页背景透明，让 3D 角色的平台视图作为全屏底层透出来，
       // 顶栏/输入区等 UI 只是半透明叠加层。
-      // 禁止 Scaffold 随键盘自动 resize，避免键盘弹出时压缩 Live2D 视口导致人物偏移。
+      // 禁止 Scaffold 随键盘自动 resize，避免键盘弹出时压缩 3D 视口导致人物偏移。
       resizeToAvoidBottomInset: false,
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
-          // 1. Live2D 整屏放在 Stack 底层；flutter_live2d 用 HybridComposition
-          //    把原生 GL 视图合成在 Flutter 之上，所以这一层全屏就让人物成为
-          //    背景。消息区/输入区靠几何遮挡 + 半透明磨砂浮层叠在上面（见区块 2/3）。
-          // 1. 底层柔和背景：与 Live2D 默认底色 (0xFFEDF7F0) 一致，
+          // 1. 底层柔和背景色：与 3D 场景底色一致，
           //    人物在全屏内无规则游走时，露出/移过的背景无缝衔接。
           const Positioned.fill(child: ColoredBox(color: Color(0xFFEDF7F0))),
 
-          // 1.5 漂移的 Live2D：人物在整屏范围内无规则缓慢游走，
-          //     叠加模型自带 Idle 微动 + 主动小动作，显得活泼自然。
-          _WanderingLive2D(),
+          // 2. 漂移的 3D 角色：model_viewer_plus 用 Hybrid Composition 把原生
+          //    WebView 合成在 Flutter 之上，这一层全屏即让角色成为背景。
+          //    消息区/输入区靠几何占位 + 透明叠加浮在上面（见区块 3/4）。
+          const _WanderingAvatar(),
 
-          // 2. 消息区：不要任何外层容器（虚线框/磨砂玻璃/圆角卡片），让气泡
-          //    直接浮在 Live2D 全屏背景之上 —— 用户反馈外框挡住人物。
+          // 3. 消息区：不要任何外层容器（虚线框/磨砂玻璃/圆角卡片），让气泡
+          //    直接浮在 3D 角色之上 —— 用户反馈外框挡住人物。
           //    仅保留：占位（输入框上方的让位）+ 收键盘手势 + ListView 内部 padding。
           Positioned(
             bottom: 140, // 紧贴输入区上方
@@ -293,36 +230,23 @@ class _ChatPageState extends ConsumerState<ChatPage>
                   : _buildLetterList(chatState, status),
             ),
           ),
-          // 3. 顶栏 + 输入区：SafeArea 保证不被状态栏/导航栏遮挡，
+          // 4. 顶栏 + 输入区：SafeArea 保证不被状态栏/导航栏遮挡，
           //    绘制在虚线框之上。
           SafeArea(
             child: Column(
               children: [
                 _buildTopBar(isDark),
                 const Spacer(),
-                // 输入区监听模型就绪状态，「竹笌在这里」只在模型未加载/未就绪时
-                // 紧贴输入框上方显示；模型加载成功后消失，不遮挡人物。
-                ListenableBuilder(
-                  listenable: live2dViewController,
-                  builder: (context, _) {
-                    final state = live2dViewController.value;
-                    // 3D 人形（model_viewer_plus）一旦构建即视为就绪；
-                    // 2D 仍按 Live2D 控制器状态判断。
-                    final modelReady = kUseVrmAvatar
-                        ? true
-                        : (state.isAttached &&
-                              !state.isLoadingModel &&
-                              state.loadedModel != null &&
-                              state.lastError == null);
-                    return _buildInputArea(
-                      status,
-                      chatState.errorMessage,
-                      isDark,
-                      modelReady,
-                      messages,
-                      chatState,
-                    );
-                  },
+                // 输入区。
+                // 3D 角色由 VrmAvatarView 在底层异步加载（缺文件会自动回退占位模型，
+                // 不会崩溃），因此这里恒定视为「模型已就绪」，不再显示加载提示。
+                _buildInputArea(
+                  status,
+                  chatState.errorMessage,
+                  isDark,
+                  true,
+                  messages,
+                  chatState,
                 ),
               ],
             ),
@@ -336,7 +260,7 @@ class _ChatPageState extends ConsumerState<ChatPage>
 
   Widget _buildTopBar(bool isDark) {
     // 顶栏作为透明 overlay：不设置任何背景/圆底，只保留带阴影的线型图标，
-    // 让 Live2D 人物/模型从图标后面完全透出来。
+    // 让 3D 角色从图标后面完全透出来。
     // 情绪胶囊：竹笌当前情绪（非「平静」时才显示，避免空状态干扰）
     final currentEmotion = ref.watch(currentEmotionProvider);
     return Padding(
@@ -602,7 +526,7 @@ class _ChatPageState extends ConsumerState<ChatPage>
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
       // 顶部 +1 是给一个 8px 间距（避免首条气泡贴边）。
       // 错误提示统一走顶部「出错了」徽章（_buildStatusBadge），不
-      // 再在消息区中央叠 banner——免得挡住 Live2D 人物。
+      // 再在消息区中央叠 banner——免得挡住 3D 角色。
       itemCount: messages.length + 1 + (typing ? 1 : 0),
       itemBuilder: (context, index) {
         if (index == 0) return const SizedBox(height: 8);
@@ -633,13 +557,13 @@ class _ChatPageState extends ConsumerState<ChatPage>
         status == ConversationStatus.writing;
 
     // 手动跟随键盘高度上移输入区；Scaffold 已禁止自动 resize，
-    // 避免键盘弹出时压缩 Live2D 视口导致人物偏移。
+    // 避免键盘弹出时压缩 3D 视口导致人物偏移。
     final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeOut,
-      // 输入区透明叠加在 Live2D 全屏背景之上（不做磨砂），仅保留一条
+      // 输入区透明叠加在 3D 角色之上（不做磨砂），仅保留一条
       // 极细的顶部分隔线区分输入区与上方消息浮层。
       decoration: BoxDecoration(
         color: Colors.transparent,
@@ -1030,22 +954,30 @@ class _Dot extends StatelessWidget {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 全屏无规则游走的 Live2D 角色
+// 全屏无规则游走的 3D 角色
 //
-// 把 Live2D 平台视图包进一个缓慢漂移的 Transform.translate，让竹笌在
+// 把 3D 平台视图包进一个缓慢漂移的 Positioned，让竹笌在
 // 整屏范围内无规则地游走：停留 3.5~8.5s → 随机选一个新位点 → 4~8s 平滑
 // 漂过去（easeInOutSine 缓动，自然不机械）。底层已由同色背景 (0xFFEDF7F0)
 // 铺满，人物飘过时露出/移过的背景无缝衔接。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-class _WanderingLive2D extends ConsumerStatefulWidget {
-  const _WanderingLive2D();
+/// 在屏幕范围内缓慢游走的 3D 角色容器。
+///
+/// 两层动画叠加：
+/// 1. 漂移：每隔 3.5~8.5s 平滑移动到屏幕中部的一个随机位点，
+///    让人物显得活泼自然，而不是死板地钉在正中。
+/// 2. keep-alive：Android 上 model_viewer_plus 底层是 WebView，其 WebGL canvas
+///    若长时间不触发 surface 失效，约 1.5s 后会停止出帧（走路动画冻结）。
+///    这里用 10fps、振幅 ±0.5px 的亚像素振荡持续触发重绘，肉眼不可见但能保活。
+class _WanderingAvatar extends StatefulWidget {
+  const _WanderingAvatar();
 
   @override
-  ConsumerState<_WanderingLive2D> createState() => _WanderingLive2DState();
+  State<_WanderingAvatar> createState() => _WanderingAvatarState();
 }
 
-class _WanderingLive2DState extends ConsumerState<_WanderingLive2D>
+class _WanderingAvatarState extends State<_WanderingAvatar>
     with SingleTickerProviderStateMixin {
   late final AnimationController _drift = AnimationController(vsync: this);
   final Random _rnd = Random();
@@ -1055,19 +987,8 @@ class _WanderingLive2DState extends ConsumerState<_WanderingLive2D>
   Timer? _timer;
   Animation<Offset>? _anim;
   Animation<Offset>? _prevAnim;
-  double _bobY = 0.0; // 步态颠簸的当前 Y 位移（向上为正）
 
-  // 步态垂直颠簸：模拟"踏步走"的上下颠，让漂移看起来像走路而不是滑过
-  // 0.85 Hz 步态 × 2 = 1.7 Hz 颠簸（每步一次颠），振幅 22px（2400 高屏上明显可见）
-  Timer? _bobTimer;
-  double _bobT = 0.0;
-  static const double _bobAmp = 36.0;
-  static const double _gaitHz = 0.85;
-
-  // 3D 模式 keep-alive：Android VirtualDisplay 平台视图下 model_viewer_plus 的
-  // WebGL canvas 会在 ~1.5s 后冻结（surface 不再被 Flutter 触发重绘，rAF 也不出新帧）。
-  // 用 10fps 极轻微位置振荡（±0.5px）持续触发 surface 失效，肉眼几乎不可见但可让
-  // WebView 持续出帧。2D 模式不需要（HybridComposition + 30fps bob 已驱动平台视图）。
+  /// keep-alive 振荡的相位累加器（每秒 +1.0）。
   Timer? _keepAliveT;
   double _keepAlivePhase = 0.0;
 
@@ -1079,27 +1000,12 @@ class _WanderingLive2DState extends ConsumerState<_WanderingLive2D>
       _screen = MediaQuery.of(context).size;
       _scheduleNextDrift();
     });
-    // 步态颠簸：仅 2D 角色需要人工上下颠（30fps 更新 _bobY）。
-    // 3D 走路动画自带上下颠，且不应以 30fps 重排 WebView（platform view），
-    // 故 3D 模式跳过此定时器，_bobY 恒为 0。
-    if (!kUseVrmAvatar) {
-      _bobTimer = Timer.periodic(const Duration(milliseconds: 33), (timer) {
-        if (!mounted) return;
-        setState(() {
-          _bobT += 0.033;
-          // 0.5 - 0.5*cos(2*2*pi*f*t) 范围 0..1，2*gaitHz 频率
-          final phase = 2 * 2 * pi * _gaitHz * _bobT;
-          _bobY = _bobAmp * (0.5 - 0.5 * cos(phase));
-        });
-      });
-    } else {
-      // 3D keep-alive：10fps 极轻微位置抖动，让 platform view 持续触发 surface 重绘，
-      // 避免 WebGL canvas 在 VirtualDisplay 下冻结。振幅 0.5px 肉眼几乎不可见。
-      _keepAliveT = Timer.periodic(const Duration(milliseconds: 100), (_) {
-        if (!mounted) return;
-        setState(() => _keepAlivePhase += 0.1);
-      });
-    }
+    // keep-alive：10fps 极轻微位置抖动，让 platform view 持续触发 surface 重绘，
+    // 避免 WebGL canvas 冻结。振幅 0.5px，肉眼几乎不可见。
+    _keepAliveT = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (!mounted) return;
+      setState(() => _keepAlivePhase += 0.1);
+    });
   }
 
   void _scheduleNextDrift() {
@@ -1151,7 +1057,6 @@ class _WanderingLive2DState extends ConsumerState<_WanderingLive2D>
   @override
   void dispose() {
     _timer?.cancel();
-    _bobTimer?.cancel();
     _keepAliveT?.cancel();
     _prevAnim?.removeListener(_onAnimTick);
     _drift.dispose();
@@ -1160,41 +1065,19 @@ class _WanderingLive2DState extends ConsumerState<_WanderingLive2D>
 
   @override
   Widget build(BuildContext context) {
-    // 3D 人形用 model_viewer_plus 渲染 GLB（真骨骼走路）；
-    // 2D 才需要 Live2D 唇形参数驱动。
-    final Widget child;
-    if (kUseVrmAvatar) {
-      child = const VrmAvatarView();
-    } else {
-      final live2dCtrl = ref.watch(old_providers.live2dControllerProvider);
-      final lipSync = ref.watch(new_providers.lipSyncStreamProvider);
-      lipSync.whenData((mouth) {
-        live2dCtrl.viewController.setParameter(
-          'ParamMouthOpenY',
-          mouth.clamp(0.0, 0.75),
-        );
-      });
-      child = ZhuaLive2DWidget(
-        controller: live2dCtrl.viewController,
-        onTap: () {},
-      );
-    }
     // 用 Positioned(left,top) 替代 Transform.translate 驱动漂移：
     // Positioned 走 layout 阶段，platform view 的 surface 合成更稳；
     // 配合 RepaintBoundary 隔离重绘，避免动画中渲染抖动（蓝影/半透明）。
     return Positioned(
       left: _offset.dx,
-      // 步态颠簸：仅 2D 需要人工上下颠；3D 走路动画自带上下颠，_bobY 置 0。
-      // 3D 额外叠 ±0.5px@~1.9Hz keep-alive 振荡，让 platform view 持续重绘避免 WebGL 冻结。
-      top:
-          _offset.dy -
-          (kUseVrmAvatar ? (sin(_keepAlivePhase * 12.0) * 0.5) : _bobY),
+      // 叠 ±0.5px 的 keep-alive 振荡，让 platform view 持续重绘避免 WebGL 冻结。
+      top: _offset.dy - sin(_keepAlivePhase * 12.0) * 0.5,
       child: SizedBox(
         width: MediaQuery.of(context).size.width,
         // 3D 区域限制为屏高 78%：Hybrid Composition 下 SurfaceView 会盖住
         // 底部的 Flutter 聊天输入栏，缩 3D 高度留出空间给输入框不被压。
         height: MediaQuery.of(context).size.height * 0.78,
-        child: child,
+        child: const VrmAvatarView(),
       ),
     );
   }

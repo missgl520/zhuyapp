@@ -15,6 +15,16 @@
 // 依赖关系：
 //   本类依赖 ChatService（复用其 SSE 解析能力）
 //   本类被 providers 层调用，UI 不直接访问本类
+//
+// 上游：presentation/providers/*、设置页（改后端地址）。
+// 下游：Dio + SigningInterceptor（签名）、ChatService（SSE）、
+//       BackendConfig（baseUrl）。
+//
+// 关键点：
+//   1. 所有接口都 try/catch 后返回兜底值（空列表 / false / 初始值），
+//      绝不把网络异常抛给 UI——离线优先的基本要求。
+//   2. 修改后端地址必须走 setBackendUrl()，它会同时更新 Dio 与
+//      ChatService 的 baseUrl；只改 BackendConfig 不会生效。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'dart:typed_data';
@@ -53,6 +63,11 @@ class BackendService {
   // ════════════════════════════════════════════════════════
 
   /// 流式对话（转发给 ChatService）
+  ///
+  /// [history] 元素是 `{'role': ..., 'content': ...}` 的裸 Map，
+  /// 这里会转成 domain.Message 再下传。
+  ///
+  /// 返回 true 表示流正常结束；失败时先回调 [onError] 再返回 false。
   Future<bool> streamChat({
     required String message,
     required List<Map<String, String>> history,
@@ -89,6 +104,8 @@ class BackendService {
   // ════════════════════════════════════════════════════════
 
   /// 健康检查（后端是否在线）
+  ///
+  /// 任何异常都视为离线，返回 false。
   Future<bool> healthCheck() async {
     try {
       final resp = await _dio.get('/health');
@@ -124,6 +141,8 @@ class BackendService {
   // ════════════════════════════════════════════════════════
 
   /// 获取今日对话记忆
+  ///
+  /// 请求失败返回空列表，调用方无需判空异常。
   Future<List<Map<String, dynamic>>> getTodayMemories() async {
     try {
       final resp = await _dio.get('/memory/today');
@@ -134,7 +153,7 @@ class BackendService {
     }
   }
 
-  /// 搜索记忆
+  /// 搜索记忆：按关键词检索，最多返回 20 条；失败返回空列表。
   Future<List<Map<String, dynamic>>> searchMemories(String query) async {
     try {
       final resp = await _dio.get(
@@ -148,7 +167,7 @@ class BackendService {
     }
   }
 
-  /// 获取对话摘要列表
+  /// 获取对话摘要列表；失败返回空列表。
   Future<List<Map<String, dynamic>>> getSummaries() async {
     try {
       final resp = await _dio.get('/memory/summaries');
@@ -169,7 +188,7 @@ class BackendService {
     }
   }
 
-  /// 获取好感度数据
+  /// 获取好感度数据；失败返回 [BackendAffinityData.initial]。
   Future<BackendAffinityData> getAffinity() async {
     try {
       final resp = await _dio.get('/affinity');
@@ -228,7 +247,7 @@ class BackendService {
   // Phase 1：音乐狗子状态与交互
   // ════════════════════════════════════════════════════════
 
-  /// 获取音乐狗子当前状态
+  /// 获取音乐狗子当前状态；失败返回空 Map，UI 需自行兜底。
   Future<Map<String, dynamic>> getPetState() async {
     try {
       final resp = await _dio.get('/pet/state');
@@ -238,7 +257,9 @@ class BackendService {
     }
   }
 
-  /// 与音乐狗子交互（feed/play/pet/talk/sleep）
+  /// 与音乐狗子交互（feed/play/pet/talk/sleep），返回交互后的最新状态。
+  ///
+  /// 失败返回空 Map。
   Future<Map<String, dynamic>> petInteract(String action) async {
     try {
       final resp = await _dio.post('/pet/interact', data: {'action': action});
@@ -253,7 +274,7 @@ class BackendService {
   // Phase 1：歌词库 CRUD
   // ════════════════════════════════════════════════════════
 
-  /// 获取歌词列表
+  /// 分页获取歌词列表；失败返回空列表。
   Future<List<Map<String, dynamic>>> listLyrics({int limit = 50, int offset = 0}) async {
     try {
       final resp = await _dio.get('/lyrics', queryParameters: {'limit': limit, 'offset': offset});
@@ -264,7 +285,7 @@ class BackendService {
     }
   }
 
-  /// 获取单条歌词
+  /// 获取单条歌词；不存在或失败返回 null。
   Future<Map<String, dynamic>?> getLyrics(int id) async {
     try {
       final resp = await _dio.get('/lyrics/$id');
@@ -274,7 +295,7 @@ class BackendService {
     }
   }
 
-  /// 创建歌词
+  /// 创建歌词，返回后端生成的新 id；失败返回 null。
   Future<int?> createLyrics({required String title, required String content, List<String>? tags, String? mood}) async {
     try {
       final resp = await _dio.post('/lyrics', data: {
@@ -290,7 +311,7 @@ class BackendService {
     }
   }
 
-  /// 更新歌词
+  /// 更新歌词（只提交非 null 字段，即局部更新）；失败返回 false。
   Future<bool> updateLyrics(int id, {String? title, String? content, List<String>? tags, String? mood}) async {
     try {
       final resp = await _dio.put('/lyrics/$id', data: {
@@ -319,7 +340,9 @@ class BackendService {
   // Phase 1：音乐生成
   // ════════════════════════════════════════════════════════
 
-  /// 发起音乐生成（异步任务）
+  /// 发起音乐生成（异步任务），返回 job_id 供 [getMusicJob] 轮询。
+  ///
+  /// 失败返回 null。生成是异步的，不要期待本方法直接返回音频。
   Future<String?> generateMusic({String prompt = '', int? lyricsId, String style = '', String title = ''}) async {
     try {
       final resp = await _dio.post('/music/generate', data: {
@@ -335,7 +358,9 @@ class BackendService {
     }
   }
 
-  /// 查询音乐生成任务状态
+  /// 查询音乐生成任务状态（pending / running / done / failed）。
+  ///
+  /// 失败返回 null。
   Future<Map<String, dynamic>?> getMusicJob(String jobId) async {
     try {
       final resp = await _dio.get('/music/jobs/$jobId');
@@ -349,7 +374,9 @@ class BackendService {
   // Phase 1：歌曲库
   // ════════════════════════════════════════════════════════
 
-  /// 获取歌曲列表
+  /// 分页获取歌曲列表；[favoriteOnly] 为 true 时只返回收藏。
+  ///
+  /// 失败返回空列表。
   Future<List<Map<String, dynamic>>> listSongs({int limit = 50, int offset = 0, bool favoriteOnly = false}) async {
     try {
       final resp = await _dio.get('/songs', queryParameters: {
@@ -397,12 +424,22 @@ class BackendService {
 
 /// 好感度数据（BackendService 内部用）
 /// 命名为 BackendAffinityData 避免与 providers/app_providers_legacy.dart 的 AffinityData 冲突
+///
+/// 三个维度均为 0-100，[totalInteractions] 决定关系等级（见 [level]）。
 class BackendAffinityData {
+  /// 信任值（0-100）。
   final double trust;
+
+  /// 亲密度（0-100）。
   final double intimacy;
+
+  /// 熟悉度（0-100）。
   final double familiarity;
+
+  /// 累计互动轮数，决定 [level]。
   final int totalInteractions;
 
+  /// 构造一份好感度数据，默认值为新用户的初始状态。
   BackendAffinityData({
     this.trust = 30,
     this.intimacy = 20,
@@ -410,6 +447,7 @@ class BackendAffinityData {
     this.totalInteractions = 0,
   });
 
+  /// 从后端 `/affinity` 响应构造；字段缺失或类型异常时回落默认值。
   factory BackendAffinityData.fromJson(Map<String, dynamic> json) {
     return BackendAffinityData(
       trust: (json['trust'] as num?)?.toDouble() ?? 30,
@@ -419,8 +457,10 @@ class BackendAffinityData {
     );
   }
 
+  /// 新用户初始好感度（后端不可达时的兜底值）。
   factory BackendAffinityData.initial() => BackendAffinityData();
 
+  /// 关系等级文案：陌生人 / 熟人 / 朋友 / 亲密 / 灵魂伴侣。
   String get level {
     if (totalInteractions >= 100) return '灵魂伴侣';
     if (totalInteractions >= 61) return '亲密';
@@ -429,5 +469,6 @@ class BackendAffinityData {
     return '陌生人';
   }
 
+  /// 三维平均值（0-100），用于进度条/徽章展示。
   double get total => (trust + intimacy + familiarity) / 3;
 }

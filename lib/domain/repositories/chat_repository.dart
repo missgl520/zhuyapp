@@ -16,6 +16,12 @@
 //           → 后端 /chat/v2
 //
 // 这就是"依赖倒置"：domain 层不依赖 data 层，而是 data 层依赖 domain 层定义的接口。
+//
+// 上游：presentation/providers（对话状态管理）。
+// 下游：ChatRepositoryImpl（data 层实现）。
+//
+// 关键点：本文件只声明契约，不含任何实现细节；
+//   新增能力时先改这里，再改 data 层实现，保证 UI 面向抽象编程。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import '../entities/message.dart';
@@ -44,14 +50,28 @@ enum ChatEventType {
 
 /// 对话事件（流式事件载体）
 /// 后端 SSE 流推送的每条消息，都包装成这个格式
+///
+/// 每个字段只在对应 [type] 下有值，其余为 null。
 class ChatEvent {
+  /// 事件类型，决定下面哪些字段有效。
   final ChatEventType type;
+
+  /// type=token 时：当前新增的文字片段
   final String? token; // type=token 时：当前新增的文字片段
+
+  /// type=emotion 时：情绪标签
   final String? emotion; // type=emotion 时：情绪标签
+
+  /// type=affinity 时：好感度数据
   final Map<String, dynamic>? affinity; // type=affinity 时：好感度数据
+
+  /// type=error 时：错误信息
   final String? error; // type=error 时：错误信息
+
+  /// type=offlineSaved 时：本条消息的幂等 id
   final String? clientMsgId; // type=offlineSaved 时：本条消息的幂等 id
 
+  /// 构造一个事件；通常改用下面的命名工厂方法更直观。
   const ChatEvent({
     required this.type,
     this.token,

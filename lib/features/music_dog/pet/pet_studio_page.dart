@@ -1,3 +1,18 @@
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 宠物创作助手页（features/music_dog/pet/pet_studio_page.dart）
+//
+// 职责：音乐狗子模块的「创作台」主页面——整合 3D 宠物展示、对话、歌词库
+//       与音乐生成，以 Tab（创作台 / 歌词库 / 关于）组织交互。
+//
+// 上游：可从宠物入口或底部导航 push 进入。
+// 下游：依赖 chatty_dog_pet.dart（宠物 Widget）、backend_service.dart（生成音乐）、
+//       tts_service.dart（朗读）、music_dog_models.dart（数据模型）。
+//
+// 关键点：
+//   1. 顶部宠物状态栏由 _PetStatusBar 独立封装，状态来自 petStateProvider。
+//   2. 音频地址可能为相对路径，统一经 _absUrl 拼成绝对 URL 再播放。
+//   3. 音乐生成走后端 /generate，失败需静默降级（见 tts / backend 三层防御）。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -27,6 +42,7 @@ class PetStudioPage extends ConsumerStatefulWidget {
   ConsumerState<PetStudioPage> createState() => _PetStudioPageState();
 }
 
+/// 创作台页状态：持有 3 段 Tab 的控制器，并按 petStateProvider 渲染顶部状态栏。
 class _PetStudioPageState extends ConsumerState<PetStudioPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -94,7 +110,9 @@ class _PetStudioPageState extends ConsumerState<PetStudioPage>
 // ═══════════════════════════════════════════════
 // 宠物状态栏
 // ═══════════════════════════════════════════════
+/// 创作台顶部宠物状态栏：🐕 图标 + 心情 emoji + 好感度进度条。
 class _PetStatusBar extends StatelessWidget {
+  /// 当前宠物状态（来自 petStateProvider）。
   final ZhuyPetState state;
   const _PetStatusBar({required this.state});
 
@@ -171,6 +189,7 @@ class _PetStatusBar extends StatelessWidget {
 // ═══════════════════════════════════════════════
 // 创作台（核心页面）
 // ═══════════════════════════════════════════════
+/// 创作台核心页：狗子对话 + 歌词创作 + 音乐生成，本地状态自管理。
 class _CreationStudio extends StatefulWidget {
   const _CreationStudio();
 
@@ -178,6 +197,7 @@ class _CreationStudio extends StatefulWidget {
   State<_CreationStudio> createState() => _CreationStudioState();
 }
 
+/// 创作台状态：维护对话消息列表、输入框、歌词/音乐生成状态与 TTS 朗读。
 class _CreationStudioState extends State<_CreationStudio> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
@@ -225,6 +245,10 @@ class _CreationStudioState extends State<_CreationStudio> {
     });
   }
 
+  /// 发送一条消息给狗子（或快捷语 [presetPrompt]）。
+  ///
+  /// 流程：调 [askDog] 拿回复 → 气泡展示 → 可选 TTS 朗读 →
+  /// 若回复含歌词/音乐意图则自动串起创作链路。网络失败静默降级。
   Future<void> _sendMessage([String? presetPrompt]) async {
     final text = presetPrompt ?? _controller.text.trim();
     if (text.isEmpty) return;
@@ -288,6 +312,13 @@ class _CreationStudioState extends State<_CreationStudio> {
     }
   }
 
+  /// 调用后端 /lyrics 创建一条歌词，并把结果存到 [_lastLyrics]。
+  ///
+  /// Args:
+  ///   theme: 标题/主题。
+  ///   style: 风格标签。
+  ///   mood: 情绪。
+  ///   content: 歌词正文（直接用狗子回复）。
   Future<void> _createLyrics({
     required String theme,
     required String style,
@@ -329,6 +360,12 @@ class _CreationStudioState extends State<_CreationStudio> {
     }
   }
 
+  /// 用已有歌词向后端发起音乐生成并轮询任务，成功后弹出播放器。
+  ///
+  /// Args:
+  ///   lyrics: 歌词正文。
+  ///   prompt: 音乐风格描述。
+  ///   duration: 期望时长（秒）。
   Future<void> _generateMusic({
     required String lyrics,
     required String prompt,
@@ -403,6 +440,7 @@ class _CreationStudioState extends State<_CreationStudio> {
     }
   }
 
+  /// 以底部弹层展示 [_MusicPlayer] 播放器。
   void _showMusicPlayer(String url, int duration) {
     showModalBottomSheet(
       context: context,
@@ -538,9 +576,13 @@ class _CreationStudioState extends State<_CreationStudio> {
 // ═══════════════════════════════════════════════
 // 歌词预览卡片
 // ═══════════════════════════════════════════════
+/// 歌词预览卡片：展示刚创作的歌词、风格/情绪，并提供「生成歌曲」入口。
 class _LyricsPreview extends StatelessWidget {
+  /// 待预览的歌词结果。
   final LyricsResult lyrics;
+  /// 点击「生成歌曲」的回调（为 null 时隐藏按钮）。
   final VoidCallback? onGenerateMusic;
+  /// 是否正在生成音乐（显示 loading）。
   final bool isGenerating;
 
   const _LyricsPreview({
@@ -648,8 +690,11 @@ class _LyricsPreview extends StatelessWidget {
 // ═══════════════════════════════════════════════
 // 音乐播放器（just_audio 0.9.46 流式 API；单 URL 播放/暂停/拖动进度）
 // ═══════════════════════════════════════════════
+/// 音乐播放器弹层（基于 just_audio 流式 API）。
 class _MusicPlayer extends StatefulWidget {
+  /// 可播放的绝对音频 URL（已含 baseUrl）。
   final String url;
+  /// 兜底时长（秒），后端未返回时长时使用。
   final int duration;
   const _MusicPlayer({required this.url, required this.duration});
 
@@ -657,6 +702,7 @@ class _MusicPlayer extends StatefulWidget {
   State<_MusicPlayer> createState() => _MusicPlayerState();
 }
 
+/// 播放器状态：订阅 just_audio 的时长/进度/播放状态流，驱动 UI 与 seek。
 class _MusicPlayerState extends State<_MusicPlayer> {
   final AudioPlayer _player = AudioPlayer();
   bool _isPlaying = false;
@@ -689,6 +735,7 @@ class _MusicPlayerState extends State<_MusicPlayer> {
     super.dispose();
   }
 
+  /// 播放/暂停切换：首次播放先 [AudioPlayer.setUrl] 再 play，失败静默。
   Future<void> _toggle() async {
     if (_isPlaying) {
       await _player.pause();
@@ -762,9 +809,13 @@ class _MusicPlayerState extends State<_MusicPlayer> {
 // ═══════════════════════════════════════════════
 // 对话气泡
 // ═══════════════════════════════════════════════
+/// 对话气泡：用户消息靠右（暖色），狗子消息靠左（白色），错误态淡红。
 class _ChatBubble extends StatelessWidget {
+  /// true=用户消息（靠右）。
   final bool isUser;
+  /// 气泡文本。
   final String text;
+  /// true=网络/业务错误态（淡红背景）。
   final bool isError;
 
   const _ChatBubble({
@@ -832,6 +883,7 @@ class _ChatBubble extends StatelessWidget {
 // ═══════════════════════════════════════════════
 // 打字指示器
 // ═══════════════════════════════════════════════
+/// 狗子「正在输入」指示器：头像 + 跳动圆点。
 class _TypingIndicator extends StatelessWidget {
   const _TypingIndicator();
 
@@ -866,6 +918,7 @@ class _TypingIndicator extends StatelessWidget {
   }
 }
 
+/// 三个循环缩放的小圆点，构成打字指示器动画。
 class _DotBounce extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -900,7 +953,9 @@ class _DotBounce extends StatelessWidget {
 // ═══════════════════════════════════════════════
 // 空状态
 // ═══════════════════════════════════════════════
+/// 创作台空状态：大狗子 + 引导文案，点击快捷语触发 [onPromptTap]。
 class _EmptyStudio extends StatelessWidget {
+  /// 点击引导示例时回调（传入示例文案）。
   final void Function(String) onPromptTap;
   const _EmptyStudio({required this.onPromptTap});
 
@@ -942,6 +997,7 @@ class _EmptyStudio extends StatelessWidget {
 // ═══════════════════════════════════════════════
 // 歌词库（真实数据：后端 /lyrics 列表）
 // ═══════════════════════════════════════════════
+/// 歌词库 Tab：拉取后端 /lyrics 列表并展示（空态有引导）。
 class _LyricsLibrary extends StatefulWidget {
   const _LyricsLibrary();
 
@@ -949,6 +1005,7 @@ class _LyricsLibrary extends StatefulWidget {
   State<_LyricsLibrary> createState() => _LyricsLibraryState();
 }
 
+/// 歌词库状态：加载并缓存歌词列表。
 class _LyricsLibraryState extends State<_LyricsLibrary> {
   List<Map<String, dynamic>> _songs = [];
   bool _loading = true;
@@ -959,6 +1016,7 @@ class _LyricsLibraryState extends State<_LyricsLibrary> {
     _loadLyrics();
   }
 
+  /// 拉取最近 50 条歌词；失败静默（保留空态），组件卸载则不更新。
   Future<void> _loadLyrics() async {
     try {
       final items = await BackendService.instance.listLyrics(limit: 50);
@@ -1062,7 +1120,9 @@ class _LyricsLibraryState extends State<_LyricsLibrary> {
 // ═══════════════════════════════════════════════
 // 单独宠物页面
 // ═══════════════════════════════════════════════
+/// 「宠物」Tab：单独展示可交互狗子，并把后端 mood 字符串映射成 [PetMood]。
 class _PetAloneScreen extends StatelessWidget {
+  /// 当前宠物状态（来自 petStateProvider）。
   final ZhuyPetState petState;
   const _PetAloneScreen({required this.petState});
 
@@ -1073,6 +1133,7 @@ class _PetAloneScreen extends StatelessWidget {
     );
   }
 
+  /// 把后端 mood 字符串映射为 [PetMood] 枚举（未知值回退 happy）。
   PetMood _stringToMood(String mood) {
     switch (mood) {
       case 'excited': return PetMood.excited;
@@ -1088,7 +1149,9 @@ class _PetAloneScreen extends StatelessWidget {
 // ═══════════════════════════════════════════════
 // 扩展方法
 // ═══════════════════════════════════════════════
+/// 列表扩展：补一个「从后往前找首个匹配」的工具方法。
 extension ListExtension<T> on List<T> {
+  /// 从列表末尾向前返回首个满足 [test] 的元素，无则 null。
   T? lastWhereOrNull(bool Function(T) test) {
     for (var i = length - 1; i >= 0; i--) {
       if (test(this[i])) return this[i];

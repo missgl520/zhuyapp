@@ -12,6 +12,14 @@
 //   await svc.connect(room: 'zhuyapp-voice');
 //   // 麦克风自动发布，AI 音频自动播放
 //   await svc.disconnect();
+//
+// 上游：语音通话页（VoiceCallPage）。
+// 下游：后端 /livekit/connect（取 token，需签名）、livekit_client SDK。
+//
+// 关键点：
+//   1. 连接信息必须带签名头请求，后端 /livekit/connect 强制鉴权。
+//   2. Android/iOS 音频播放被系统打断（如来电）后需在
+//      AudioPlaybackStatusChanged 里手动 startAudio() 恢复。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'dart:async';
@@ -25,9 +33,24 @@ import '../auth/client_auth.dart';
 import '../config.dart';
 
 /// 连接状态
-enum LiveKitState { idle, connecting, connected, error }
+enum LiveKitState {
+  /// 未连接（初始态 / 已断开）。
+  idle,
+
+  /// 正在握手中。
+  connecting,
+
+  /// 已连接，麦克风已发布、AI 音频可订阅。
+  connected,
+
+  /// 连接失败，详情见 LiveKitService.errorMessage。
+  error,
+}
 
 /// LiveKit 实时语音服务
+///
+/// 负责「取 token → 进房 → 开麦 → 订阅 AI 音频」的完整链路，
+/// 状态通过 [state] 只读暴露给 UI。
 class LiveKitService {
   Room? _room;
   EventsListener<RoomEvent>? _listener;
@@ -37,13 +60,21 @@ class LiveKitService {
 
   // ── Getters ──────────────────────────────────────────
 
+  /// 当前连接状态。
   LiveKitState get state => _state;
+
+  /// 最近一次失败的原因；成功/未失败时为 null。
   String? get errorMessage => _errorMessage;
+
+  /// 是否已成功连接。
   bool get isConnected => _state == LiveKitState.connected;
 
   // ── 连接 ─────────────────────────────────────────────
 
-  /// 从后端获取 token 并连接 LiveKit 房间
+  /// 从后端获取 token 并连接 LiveKit 房间。
+  ///
+  /// [room] 房间名；[userId] 传给后端做身份区分，可为空。
+  /// 已在连接/已连接时直接返回（幂等）。失败会 rethrow，状态置为 error。
   Future<void> connect({required String room, String userId = ''}) async {
     if (_state == LiveKitState.connecting || _state == LiveKitState.connected) {
       return;
@@ -106,7 +137,7 @@ class LiveKitService {
     }
   }
 
-  /// 主动断开
+  /// 主动断开：取消监听、退出房间并回到 idle 状态。
   Future<void> disconnect() async {
     await _listener?.cancelAll();
     _listener = null;
@@ -115,13 +146,16 @@ class LiveKitService {
     _setState(LiveKitState.idle, null);
   }
 
-  /// 切换静音
+  /// 切换静音（true = 关闭麦克风）。未连接时为空操作。
   Future<void> setMuted(bool muted) async {
     await _room?.localParticipant?.setMicrophoneEnabled(!muted);
   }
 
   // ── 内部方法 ─────────────────────────────────────────
 
+  /// 向后端 `/livekit/connect` 换取 `livekit_url` 与 `token`。
+  ///
+  /// 后端不可用或非 200 时抛 [Exception]。
   Future<Map<String, dynamic>> _fetchConnectionInfo({
     required String room,
     required String userId,
@@ -148,6 +182,7 @@ class LiveKitService {
     }
   }
 
+  /// 更新状态与错误信息（内部唯一入口，便于后续加通知）。
   void _setState(LiveKitState state, String? error) {
     _state = state;
     _errorMessage = error;

@@ -15,6 +15,14 @@
 // 两张表：
 //   chat_history  所有对话（user / assistant），pending_sync 标记待同步
 //   outbox        断网/后端不可达时待补发的用户消息，sync 成功后删除
+//
+// 上游：ChatRepositoryImpl（读写历史与发件箱）、SyncEngine（补发）。
+// 下游：sqflite、LocalEncryption（content 加密）、uuid（行 id）。
+//
+// 关键点：
+//   1. _ensureInit 用 Completer 做初始化锁，防止 UI 与 SyncEngine 并发
+//      触发两次 openDatabase。
+//   2. content 一律密文落盘；读取路径统一走 _rowsToMessages 解密。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'dart:async';
@@ -26,11 +34,19 @@ import '../../core/security/local_encryption.dart';
 
 /// 发件箱条目（待同步的用户消息）
 class OutboxItem {
+  /// 幂等 id：与 chat_history.client_msg_id 一一对应，供后端去重。
   final String clientMsgId;
+
+  /// 待发消息正文（明文；库内加密存储，读取时已解密）。
   final String message; // 明文（库内加密存储，读取时已解密）
+
+  /// 已尝试补发次数，用于指数退避。
   final int attempts;
+
+  /// 最近一次失败原因，便于排查。
   final String? lastError;
 
+  /// 构造一条发件箱条目；[attempts] 默认 0。
   OutboxItem({
     required this.clientMsgId,
     required this.message,
@@ -46,13 +62,17 @@ class ChatLocalDataSource {
   static const _dbName = 'zhuyu_chat.db';
   static const _dbVersion = 1;
 
+  /// 全局单例访问器。
   static final ChatLocalDataSource instance = ChatLocalDataSource._();
 
   Database? _db;
   bool _initialized = false;
   bool _initStarted = false;
+
+  /// 初始化锁：并发调用方共用一个 Future，避免重复打开数据库。
   final Completer<void> _initLock = Completer<void>();
 
+  /// 惰性打开数据库；并发调用会等待同一次初始化结果。
   Future<void> _ensureInit() async {
     if (_initialized) return;
     if (_initStarted) return _initLock.future;
@@ -69,6 +89,7 @@ class ChatLocalDataSource {
     }
   }
 
+  /// 建表：chat_history（含 client_msg_id 索引）与 outbox。
   Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS chat_history (
@@ -94,10 +115,12 @@ class ChatLocalDataSource {
     ''');
   }
 
+  /// 生成新的行主键（UUID v4）。
   Future<String> _newRowId() async => const Uuid().v4();
 
   // ── 写：用户消息（乐观写入，标记待同步） ──
 
+  /// 乐观写入一条用户消息，pending_sync=1；联网成功后由 SyncEngine 清零。
   Future<void> appendUserMessage({
     required String clientMsgId,
     required String content,
@@ -117,6 +140,7 @@ class ChatLocalDataSource {
 
   // ── 写：AI 回复（与用户消息共享 client_msg_id） ──
 
+  /// 写入 AI 回复，与用户消息共享 [clientMsgId]，pending_sync=0。
   Future<void> appendAssistantMessage({
     required String clientMsgId,
     required String content,
@@ -134,6 +158,7 @@ class ChatLocalDataSource {
     });
   }
 
+  /// 把该 client_msg_id 下的用户消息标记为已同步（pending_sync=0）。
   Future<void> markUserSynced(String clientMsgId) async {
     await _ensureInit();
     await _db!.update(
@@ -146,6 +171,7 @@ class ChatLocalDataSource {
 
   // ── 读：最近的对话历史（UI 离线优先先读这个） ──
 
+  /// 读取最近若干条对话（按时间正序），UI 冷启动时用它立即渲染。
   Future<List<Message>> getRecentHistory({int limit = 200}) async {
     await _ensureInit();
     final rows = await _db!.query(
@@ -158,6 +184,9 @@ class ChatLocalDataSource {
 
   // ── 读：构造某条待发消息之前的上下文（flush 时作为 history） ──
 
+  /// 取指定消息「之前」的全部历史，作为补发时的上下文。
+  ///
+  /// 目标消息不存在时返回空列表。
   Future<List<Message>> getHistoryBefore(String clientMsgId) async {
     await _ensureInit();
     final target = await _db!.query(
@@ -178,6 +207,7 @@ class ChatLocalDataSource {
     return _rowsToMessages(rows);
   }
 
+  /// 数据库行列表 → 解密后的 `List<Message>`。
   Future<List<Message>> _rowsToMessages(List<Map<String, dynamic>> rows) async {
     final out = <Message>[];
     for (final row in rows) {
@@ -197,6 +227,7 @@ class ChatLocalDataSource {
 
   // ── 发件箱（Outbox）操作 ──
 
+  /// 把待发消息放进发件箱；同 client_msg_id 已存在时忽略（ignore 冲突策略）。
   Future<void> enqueueOutbox({
     required String clientMsgId,
     required String message,
@@ -211,6 +242,7 @@ class ChatLocalDataSource {
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
+  /// 取出全部待发消息（按入队时间正序，保证补发顺序）。
   Future<List<OutboxItem>> getPendingOutbox() async {
     await _ensureInit();
     final rows = await _db!.query('outbox', orderBy: 'created_at ASC');
@@ -229,6 +261,7 @@ class ChatLocalDataSource {
     return out;
   }
 
+  /// 补发成功：直接从发件箱删除该条（天然幂等，不会重复发送）。
   Future<void> markOutboxSynced(String clientMsgId) async {
     await _ensureInit();
     await _db!.delete(
@@ -238,6 +271,7 @@ class ChatLocalDataSource {
     );
   }
 
+  /// 补发失败：attempts 加一并记录错误，供下次退避计算。
   Future<void> incrementAttempt(String clientMsgId, String err) async {
     await _ensureInit();
     final row = await _db!.query(

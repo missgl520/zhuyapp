@@ -9,6 +9,15 @@
 //   POST /memory        存储记忆
 //   GET  /memory/search 搜索记忆
 //   DEL  /memory        清空分类
+//
+// 上游：对话链路（buildContext 注入系统提示）、记忆历史页。
+// 下游：sqflite（本地库）、LocalEncryption（content 加密）、
+//       ClientAuth + 后端 /memory/search（签名鉴权）。
+//
+// 关键点：
+//   1. content 落库为密文，FTS5 全文索引已废弃，
+//      本地搜索退化为「全量拉取 + 内存解密 + 子串过滤」，只作后端兜底。
+//   2. /memory/search 强制签名鉴权，漏带头会整体 401。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'dart:async';
@@ -73,17 +82,36 @@ Future<String> _fetchMemoryContextFromBackend(
 
 // ━━━━━━━━━━━━━━━ 单条记忆数据结构 ━━━━━━━━━━━━━━━
 
+/// 一条记忆记录（内存中形态，content 为解密后的明文）。
 class MemoryItem {
+  /// 本地自增主键。
   final int id;
+
+  /// 记忆正文（明文，库内以密文存储）。
   final String content;
+
+  /// 分类标签，如 general / preference / event。
   final String category;
+
+  /// 附加标签，便于按主题聚合。
   final List<String> tags;
+
+  /// 重要度（0.0 ~ 1.0），越高越容易被检索到。
   final double importance;
+
+  /// 创建时间。
   final DateTime createdAt;
+
+  /// 最后更新时间；从未更新为 null。
   final DateTime? updatedAt;
+
+  /// 生存时间策略；为空表示不过期。
   final String? ttl;
+
+  /// 检索评分；非搜索结果一般为 null。
   final double? score;
 
+  /// 构造一条记忆；仅 [id]、[content]、[category]、[createdAt] 必填。
   MemoryItem({
     required this.id,
     required this.content,
@@ -106,8 +134,13 @@ class MemoryItem {
 /// - memories_fts  FTS5 虚拟表（中文全文搜索，BM25 评分）
 ///
 /// 搜索策略：BM25 关键词匹配 + 时间衰减
+///
+/// 单例（factory 构造返回同一实例）；使用前需先 [init]。
 class MemoryService {
+  /// 本地数据库文件名。
   static const _dbName = 'zhuyu_memory.db';
+
+  /// 数据库版本号：v1 带 FTS5，v2 起 content 改密文、去掉 FTS5。
   static const _dbVersion = 2;
 
   Database? _db;
@@ -120,6 +153,7 @@ class MemoryService {
 
   // ━━━ 初始化 ━━━
 
+  /// 打开（必要时创建）本地记忆库。重复调用幂等。
   Future<void> init() async {
     if (_isInitialized && _db != null) return;
 
@@ -135,6 +169,7 @@ class MemoryService {
     _isInitialized = true;
   }
 
+  /// 建表：memories 主表 + category / created_at 两个索引。
   Future<void> _onCreate(Database db, int version) async {
     // v2：content 字段为密文（at-rest 加密），不再建 FTS5 明文索引。
     await db.execute('''
@@ -157,6 +192,7 @@ class MemoryService {
     );
   }
 
+  /// 升级：v1 → v2 时清理 FTS5 相关的触发器与虚拟表。
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     // v1 → v2：移除 FTS5 明文索引（content 改为密文，FTS 全文检索失效，
     // 搜索降级为内存解密后子串过滤）。
@@ -170,6 +206,9 @@ class MemoryService {
 
   // ━━━ 基础 CRUD ━━━
 
+  /// 存一条记忆（content 加密后落库），返回新记录 id。
+  ///
+  /// [importance] 0.0~1.0；[ttl] 为过期策略，可空。
   Future<int> store(
     String content, {
     String category = 'general',
@@ -191,6 +230,9 @@ class MemoryService {
     });
   }
 
+  /// 批量存记忆（单事务，全部成功或全部回滚），返回新 id 列表。
+  ///
+  /// items 元素支持字段：content / category / tags / importance / ttl。
   Future<List<int>> storeBatch(List<Map<String, dynamic>> items) async {
     if (!_isInitialized) await init();
     final ids = <int>[];
@@ -214,6 +256,7 @@ class MemoryService {
     return ids;
   }
 
+  /// 按主键取一条记忆并解密；不存在返回 null。
   Future<MemoryItem?> get(int id) async {
     if (!_isInitialized) await init();
     final rows = await _db!.query(
@@ -229,6 +272,7 @@ class MemoryService {
     return _rowToMemory(rows.first, decryptedContent: content);
   }
 
+  /// 局部更新记忆（只改非 null 字段），并刷新 updated_at。
   Future<void> update(int id, {String? content, String? category}) async {
     if (!_isInitialized) await init();
     final updates = <String, dynamic>{
@@ -241,11 +285,13 @@ class MemoryService {
     await _db!.update('memories', updates, where: 'id = ?', whereArgs: [id]);
   }
 
+  /// 按主键删除一条记忆。
   Future<void> delete(int id) async {
     if (!_isInitialized) await init();
     await _db!.delete('memories', where: 'id = ?', whereArgs: [id]);
   }
 
+  /// 清空某一分类下的全部记忆（不可恢复）。
   Future<void> clearCategory(String category) async {
     if (!_isInitialized) await init();
     await _db!.delete('memories', where: 'category = ?', whereArgs: [category]);
@@ -268,10 +314,14 @@ class MemoryService {
     return out;
   }
 
+  /// 关键词搜索（[search] 的别名，保留旧调用点兼容）。
   Future<List<MemoryItem>> keywordSearch(String query, {int limit = 10}) async {
     return search(query, limit: limit);
   }
 
+  /// 子串搜索：全量拉取 → 解密 → 大小写无关的子串匹配。
+  ///
+  /// [query] 为空时按时间倒序返回前 [limit] 条。
   Future<List<MemoryItem>> search(String query, {int limit = 10}) async {
     if (!_isInitialized) await init();
     final q = query.trim().toLowerCase();
@@ -287,6 +337,7 @@ class MemoryService {
     return out;
   }
 
+  /// 在指定 [category] 内做子串搜索（[query] 为空则返回该分类全部）。
   Future<List<MemoryItem>> searchByCategory(
     String query,
     String category, {
@@ -306,6 +357,7 @@ class MemoryService {
     return out;
   }
 
+  /// 取最近的记忆（按创建时间倒序），可按 [category] 过滤。
   Future<List<MemoryItem>> getRecent({int limit = 20, String? category}) async {
     if (!_isInitialized) await init();
     final rows = await _db!.query(
@@ -351,6 +403,9 @@ class MemoryService {
 
   // ━━━ 内部 ━━━
 
+  /// 数据库行 → [MemoryItem]。
+  ///
+  /// [decryptedContent] 传入可避免重复解密（批量读取时必须传）。
   MemoryItem _rowToMemory(
     Map<String, dynamic> row, {
     String? decryptedContent,
@@ -386,6 +441,7 @@ class MemoryService {
     );
   }
 
+  /// 关闭数据库并重置初始化标记；下次调用会重新打开。
   Future<void> close() async {
     await _db?.close();
     _db = null;

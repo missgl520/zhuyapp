@@ -4,6 +4,15 @@
 // 位于：core/config.dart
 // 职责：集中管理所有后端相关配置
 //
+// 上游：BackendService / ChatService / LiveKitService / MemoryService
+//       （构造 Dio 时读 baseUrl）、设置页（setXxx）。
+// 下游：Hive 'settings' 盒子（持久化）、dart-define 编译期注入。
+//
+// 关键点：
+//   1. init() 用 containsKey 而非 get != null 判断，否则打包注入的
+//      ZHUYU_API_BASE_URL 会被空 Hive 里的 null 覆盖掉。
+//   2. _save 失败一律吞掉：内存值已更新，不能因为磁盘写失败影响主流程。
+//
 // 配置来源（优先级从高到低）：
 //   1. 运行时修改（代码中调用 setBaseUrl / setWakeWord）
 //   2. 本地持久化（Hive storage）
@@ -18,6 +27,10 @@
 
 import 'package:hive_flutter/hive_flutter.dart';
 
+/// 后端配置单例
+///
+/// 全 App 共享同一份「后端地址 / 唤醒词 / 情感角色」配置，
+/// 修改后立即写入 Hive，下次启动自动恢复。
 class BackendConfig {
   BackendConfig._();
 
@@ -90,6 +103,10 @@ class BackendConfig {
 
   /// 修后端地址
   /// [url] 必须是有效的 http/https URL
+  ///
+  /// 地址非法时抛 [FormatException]，调用方（设置页）需捕获并提示用户。
+  /// 修改后内存值与 Hive 同步更新，但已存在的 Dio 实例不会自动生效，
+  /// 需再调用 BackendService.setBackendUrl。
   void setBaseUrl(String url) {
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       throw FormatException('后端地址必须是 http/https 开头');
@@ -106,6 +123,8 @@ class BackendConfig {
   }
 
   /// 修改情感角色
+  ///
+  /// 取值非法时抛 [ArgumentError]。
   void setPersona(String persona) {
     if (!['gentle', 'playful', 'wise'].contains(persona)) {
       throw ArgumentError('persona 必须是 gentle/playful/wise 之一');

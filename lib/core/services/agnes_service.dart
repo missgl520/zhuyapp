@@ -5,16 +5,29 @@
 // 本服务绕过后端直连 Agnes API，记忆（RAG）功能从未生效。
 // 新代码请使用 BackendService（统一走 /chat/v2，后端处理 RAG + 情绪 + 好感度）。
 // 本类仅保留用于兼容旧代码，未来版本将删除。
+//
+// 上游：无新调用方（保留仅为兼容）。
+// 下游：Agnes 开放平台 HTTP 接口、Hive 'settings'（agnesUseCN 偏好）。
+//
+// 关键点：直连模式下记忆（RAG）不生效，这也是本服务被废弃的根本原因。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'dart:convert';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:http/http.dart' as http;
 
+/// 【已废弃】直连 Agnes 平台的对话服务。
+///
+/// 新代码请改用 BackendService（统一走后端 `/chat/v2`），
+/// 由后端负责 RAG 记忆、情绪识别与好感度计算。
 class AgnesService {
   // 单例
   static AgnesService? _instance;
+
+  /// 懒加载单例访问器。
   static AgnesService get instance => _instance ??= AgnesService._();
+
+  /// 私有构造：读取上次保存的 CN/国际版偏好。
   AgnesService._() {
     // 启动时读取上次的服务器偏好（避免每次都要重新选）
     try {
@@ -48,7 +61,13 @@ class AgnesService {
 
   // ━━━━━━━━━━━━━━━ 同步对话 ━━━━━━━━━━━━━━━
 
-  /// 一次返回完整回复
+  /// 一次返回完整回复（非流式）。
+  ///
+  /// [history]      历史消息，元素形如 `{'role': 'user', 'content': '...'}`。
+  /// [systemPrompt] 角色设定，为空则不下发 system 消息。
+  /// [saveToMemory] 直连模式下无意义，仅保持签名兼容。
+  ///
+  /// 非 200 响应会抛 [Exception]。
   Future<String> chat({
     required String message,
     List<Map<String, String>> history = const [],
@@ -83,7 +102,10 @@ class AgnesService {
 
   // ━━━━━━━━━━━━━━━ 流式对话（打字机） ━━━━━━━━━━━━━━━
 
-  /// 流式返回：每个 chunk 是一个字/词
+  /// 流式返回（SSE）：每个 chunk 是一个字/词，可直接驱动打字机效果。
+  ///
+  /// 返回 `Stream<String>`；遇到 `data: [DONE]` 时自动结束。
+  /// 非 200 响应会抛 [Exception]。
   Stream<String> chatStream({
     required String message,
     List<Map<String, String>> history = const [],
@@ -139,6 +161,7 @@ class AgnesService {
 
   // ━━━━━━━━━━━━━━━ 工具方法 ━━━━━━━━━━━━━━━
 
+  /// 拼接 OpenAI 风格的 messages 数组：system + history + 当前 user 消息。
   List<Map<String, String>> _buildMessages(
     String message,
     List<Map<String, String>> history,

@@ -23,6 +23,12 @@
 //
 // 费用注意：Cartesia 按 token 计费，免费额度有限。
 //   已实现本地缓存，同一段文字只请求一次。
+//
+// 上游：TTS 降级链中的一环（未配置 Key 时上层会改用系统 TTS）。
+// 下游：Cartesia HTTP API、just_audio（播放）、本地缓存目录。
+//
+// 关键点：本服务与 MiniMaxTTSService 各自独立实现了同名 PersonaVoice 枚举，
+//   不可混用；新代码优先使用 MiniMax 版本。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'dart:async';
@@ -83,10 +89,12 @@ class CartesiaTTSService {
   final Dio _dio = Dio();
   final AudioPlayer _player = AudioPlayer();
 
-  /// 当前角色
+  /// 当前角色（未显式指定 persona 时使用）
   PersonaVoice _currentPersona = PersonaVoice.gentle;
 
   /// 音频缓存目录（避免重复生成）
+  ///
+  /// 位于应用文档目录下的 `cartesia_cache`，不存在时自动创建。
   Future<Directory> get _cacheDir async {
     final appDir = await getApplicationDocumentsDirectory();
     final cache = Directory('${appDir.path}/cartesia_cache');
@@ -95,6 +103,9 @@ class CartesiaTTSService {
   }
 
   /// 生成文字的缓存 key（MD5，避免特殊字符做文件名）
+  ///
+  /// 注意：当前实现实际用的是 Dart 内置 hashCode 而非 MD5（历史注释未同步），
+  /// 仅用于拼文件名，无安全用途。
   String _cacheKey(String text, PersonaVoice persona) {
     final raw = '${persona.name}_$text';
     return raw.hashCode.toRadixString(16); // 简单哈希
@@ -164,7 +175,9 @@ class CartesiaTTSService {
     return File('${dir.path}/$key.wav');
   }
 
-  /// 调用 Cartesia API
+  /// 调用 Cartesia API，返回 WAV 字节。
+  ///
+  /// 未配置 Key、网络异常、解析失败一律返回 null，由上层静默降级。
   Future<List<int>?> _fetchTTS(String text, PersonaVoice persona) async {
     // 未配置真实 Key 时直接失败，让上层降级到系统 TTS
     if (!isConfigured) return null;
@@ -195,17 +208,17 @@ class CartesiaTTSService {
     }
   }
 
-  /// 切换情感角色
+  /// 切换默认情感角色（后续未指定 persona 的 speak 调用生效）
   void setPersona(PersonaVoice persona) {
     _currentPersona = persona;
   }
 
-  /// 停止播放
+  /// 停止播放（打断当前语音）
   Future<void> stop() async {
     await _player.stop();
   }
 
-  /// 释放资源
+  /// 释放资源：销毁 AudioPlayer；页面销毁时必须调用，否则播放器会泄漏。
   void dispose() {
     _player.dispose();
   }

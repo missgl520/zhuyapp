@@ -1,6 +1,19 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 竹笌 App - 主入口
 // 负责：Hive 初始化 → 全局 ProviderScope → MaterialApp.router
+// 路径：lib/main.dart
+//
+// 职责：完成启动期的一系列全局初始化，然后挂载根 Widget。
+//
+// 上游：Flutter 引擎（dart:ui 入口）。
+// 下游：BackendConfig（后端地址）、SyncEngine（离线补发）、
+//       AppRouter（路由）、AppTheme（主题）、Hive（本地 KV）。
+//
+// 关键点：
+//   1. 初始化顺序不能乱：BackendConfig.init() 必须早于任何 Dio 实例构造，
+//      否则 baseUrl 会固化成默认值。
+//   2. Hive 的 'settings' / 'messages' / 'memory' 三个盒子要先 open 再用，
+//      未 open 就访问会抛异常。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +23,10 @@ import 'core/theme/app_theme.dart';
 import 'core/sync/sync_engine.dart';
 import 'presentation/providers/app_providers.dart';
 
+/// App 入口：串行完成本地存储、后端配置、同步引擎的初始化后启动 UI。
+///
+/// 任一初始化步骤失败都会向上抛出并终止启动（fail-fast），
+/// 避免带着半初始化的状态进入 UI 造成更难排查的问题。
 void main() async {
   // Flutter 异步初始化必须调用
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,6 +58,8 @@ void main() async {
 /// - MaterialApp.router：用 go_router 做声明式路由
 /// - 根据 themeProvider 切换亮/暗主题
 /// 竹笌 App 根组件，负责主题与全局状态挂载。
+///
+/// 主题来自 [themeProvider]（Riverpod），用户在设置页切换后会重建本 Widget。
 class ZhuyApp extends ConsumerWidget {
   const ZhuyApp({super.key});
 

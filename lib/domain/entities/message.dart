@@ -14,6 +14,14 @@
 //   role        角色：'user' 用户 | 'assistant' 竹笌
 //   content     消息正文
 //   timestamp   时间戳（客户端本地时间）
+//
+// 上游：ChatRepository / ChatLocalDataSource / 各对话页。
+// 下游：无（纯 Dart，只 import foundation 用于 @immutable）。
+//
+// 关键点：
+//   1. 领域层不写 toJson/fromJson，序列化统一在 data 层处理。
+//   2. pendingSync=true 表示消息已落本地但后端未确认，
+//      UI 应给出「待同步」视觉提示。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'package:flutter/foundation.dart';
@@ -58,6 +66,7 @@ class Message {
   /// 是否等待后端同步（离线优先：用户消息发出但后端未收到时标记为 true）
   final bool pendingSync;
 
+  /// 构造一条消息；只有 id / role / content / timestamp 必填。
   const Message({
     required this.id,
     required this.role,
@@ -75,7 +84,7 @@ class Message {
   /// 是否为竹笌消息
   bool get isAssistant => role == 'assistant';
 
-  /// 是否正在流式输出中
+  /// 是否正在流式输出中（竹笌侧正在打字）
   bool get isTyping => isStreaming && isAssistant;
 
   /// 打印用（调试）

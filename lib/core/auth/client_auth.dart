@@ -8,6 +8,15 @@
 //
 // 生产构建请通过 --dart-define=ZHUYU_API_KEY=<与后端一致的密钥> 注入，
 // 切勿把真实密钥硬编码进仓库。
+//
+// 上游：SigningInterceptor（ Dio 拦截器，自动为所有请求签名）、
+//       LiveKitService / MemoryService（手动调用 signedHeaders）。
+// 下游：crypto（HMAC-SHA256）、uuid、Hive 'settings'（持久化 deviceUserId）。
+//
+// 关键点：
+//   1. 签名串的分隔符、字段顺序、body 哈希必须与后端 auth.py 逐字节一致，
+//      改动任一侧都会导致全量 401。
+//   2. 参与签名的 path 只含路径、不含 query（与后端 request.url.path 对齐）。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'dart:convert';
@@ -17,9 +26,11 @@ import 'package:dio/dio.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+/// 客户端鉴权单例：负责生成本设备 user_id 与请求签名头。
 class ClientAuth {
   ClientAuth._();
 
+  /// 全局单例访问器。
   static final ClientAuth instance = ClientAuth._();
 
   /// 必须与后端 ZHUYU_API_KEY 一致；生产环境用 --dart-define 覆盖。
@@ -44,6 +55,13 @@ class ClientAuth {
   }
 
   /// 计算签名头（与后端 canonical 严格一致）。
+  ///
+  /// [method]    HTTP 方法，必须大写（GET / POST / PUT / DELETE）。
+  /// [path]      请求路径，不含 query string，例如 `/chat/v2`。
+  /// [bodyBytes] 请求体原始字节；无 body 时传空列表。
+  /// [userId]    设备用户 id，取 [userId] getter。
+  ///
+  /// 返回可直接塞进 `options.headers` 的五个头字段。
   Map<String, String> signedHeaders({
     required String method,
     required String path,
@@ -69,6 +87,10 @@ class ClientAuth {
 }
 
 /// Dio 拦截器：自动为每个请求附加签名头与 user_id。
+///
+/// 挂在 BackendService / ChatService 的 Dio 实例上，业务代码无需关心鉴权。
+/// 注意 body 需按 `jsonEncode(options.data)` 序列化后参与签名，
+/// 与后端收到的原始字节保持一致。
 class SigningInterceptor extends Interceptor {
   @override
   void onRequest(

@@ -25,6 +25,17 @@
 //   - 丢掉的 token 攒成完整文字，通过 onText 回调返回
 //
 // 线程安全：无（Flutter 单线程，SSE 在主 isolate 运行）
+//
+// 上游：ChatRepositoryImpl（流式对话）、SyncEngine（离线补发）、
+//       BackendService（转发 streamChat）。
+// 下游：Dio + SigningInterceptor、后端 /chat/v2。
+//
+// 关键点：
+//   1. responseType 必须是 ResponseType.stream，否则 Dio 会等到响应
+//      结束才返回，打字机效果失效。
+//   2. 错误信息要含「网络 / 超时 / 连接 / 网关 / 后端」等关键词，
+//      ChatRepositoryImpl._isRecoverable 依赖这些词判断是否进发件箱，
+//      改文案时务必同步。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'dart:async';
@@ -35,9 +46,13 @@ import '../../core/config.dart';
 
 import '../../domain/entities/message.dart';
 
+/// 对话服务：负责发起 /chat/v2 请求、解析 SSE 流并分发到各回调。
+///
 /// 2. 解析 SSE 流事件
 /// 3. 将事件转换为 ChatEvent 推送给调用方
+///    （本类通过回调下发，ChatEvent 的组装在 ChatRepositoryImpl）
 class ChatService {
+  /// [dio] 可注入以便测试；不传则按 [BackendConfig] 新建并挂上签名拦截器。
   ChatService({Dio? dio})
     : _dio =
           (dio ??
@@ -62,6 +77,7 @@ class ChatService {
   /// [message]      用户输入的文字
   /// [history]      历史消息列表（传给后端做上下文）
   /// [systemPrompt] 自定义角色设定（可空）
+  /// [clientMsgId]  幂等 id，断网补发时带上供后端去重（可空）
   /// [onText]       每收到一个 token 片段就触发回调
   /// [onEmotion]    情绪识别结果回调
   /// [onAffinity]   好感度变化回调
@@ -178,7 +194,13 @@ class ChatService {
     }
   }
 
-  /// 根据事件类型分发到不同回调
+  /// 根据事件类型分发到不同回调。
+  ///
+  /// [eventType] SSE 的 `event:` 行取值（text / emotion / affinity /
+  /// meta / blocked / done）。
+  /// [rawData]   SSE 的 `data:` 行拼接结果，应为 JSON。
+  ///
+  /// JSON 解析失败且事件类型为 text 时，把原文当作纯文本下发给 [onText]。
   void _dispatch(
     String eventType,
     String rawData,
@@ -239,7 +261,10 @@ class ChatService {
     }
   }
 
-  /// 格式化 Dio 错误
+  /// 格式化 Dio 错误：把 Dio 异常翻译成用户可读的中文文案。
+  ///
+  /// 文案需保留「网络 / 超时 / 连接 / 网关 / 后端」等关键词，
+  /// 否则上层无法识别为可重试错误。
   String _formatDioError(DioException e) {
     switch (e.type) {
       case DioExceptionType.connectionTimeout:
@@ -264,7 +289,7 @@ class ChatService {
     }
   }
 
-  /// 单独检测情绪（不走流式）
+  /// 单独检测文本情绪（不走流式）；失败返回 'neutral'。
   Future<String> detectEmotion(String text) async {
     try {
       final resp = await _dio.post('/emotion', data: {'text': text});
@@ -275,7 +300,7 @@ class ChatService {
     }
   }
 
-  /// 检查后端是否在线
+  /// 检查后端是否在线（5s 超时的 /health 探测）。
   Future<bool> isOnline() async {
     try {
       final resp = await _dio.get(

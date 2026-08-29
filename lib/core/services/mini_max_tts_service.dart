@@ -23,6 +23,15 @@
 //
 // 费用注意：MiniMax 按字符计费，账户需有足够余额（status_code=1008 即余额不足）。
 //   已实现本地缓存，同一段文字只请求一次。
+//
+// 上游：TTS 降级链中的一环（未配置 Key 或失败时上层改用系统 TTS）。
+// 下游：MiniMax HTTP API、just_audio（播放）、本地缓存目录。
+//
+// 关键点：
+//   1. 返回的 data.audio 是 hex 编码字符串，必须解码成字节才能播放
+//      （代码里保留了对 base64 的兼容回退）。
+//   2. 本文件的 PersonaVoice 与 cartesia_tts_service.dart 同名但不同源，
+//      不可互换使用。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'dart:async';
@@ -82,6 +91,8 @@ class MiniMaxTTSService {
   PersonaVoice _currentPersona = PersonaVoice.gentle;
 
   /// 音频缓存目录（避免重复生成）
+  ///
+  /// 位于应用文档目录下的 `minimax_cache`，不存在时自动创建。
   Future<Directory> get _cacheDir async {
     final appDir = await getApplicationDocumentsDirectory();
     final cache = Directory('${appDir.path}/minimax_cache');
@@ -90,6 +101,8 @@ class MiniMaxTTSService {
   }
 
   /// 生成文字的缓存 key（避免特殊字符做文件名）
+  ///
+  /// 实际算法：Dart 内置 hashCode 转 16 进制，仅用于拼文件名，无安全用途。
   String _cacheKey(String text, PersonaVoice persona) {
     final raw = '${persona.name}_$text';
     return raw.hashCode.toRadixString(16);
@@ -240,7 +253,7 @@ class MiniMaxTTSService {
     }
   }
 
-  /// 把 hex 字符串解码为字节
+  /// 把 hex 字符串解码为字节；长度为奇数时抛 [FormatException]。
   static Uint8List _hexToBytes(String hex) {
     final clean = hex.replaceAll(RegExp(r'\s+'), '');
     if (clean.length % 2 != 0) throw const FormatException('invalid hex');
@@ -251,17 +264,17 @@ class MiniMaxTTSService {
     return bytes;
   }
 
-  /// 切换情感角色
+  /// 切换默认情感角色（后续未指定 persona 的 speak 调用生效）
   void setPersona(PersonaVoice persona) {
     _currentPersona = persona;
   }
 
-  /// 停止播放
+  /// 停止播放（打断当前语音）
   Future<void> stop() async {
     await _player.stop();
   }
 
-  /// 释放资源
+  /// 释放资源：销毁 AudioPlayer；页面销毁时必须调用，否则播放器会泄漏。
   void dispose() {
     _player.dispose();
   }
