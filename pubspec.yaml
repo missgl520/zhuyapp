@@ -77,13 +77,11 @@ dependencies:
   speech_to_text: ^7.0.0
 
   # ═══════════════════════════════════════════════════════
-  # Live2D 虚拟角色
+  # 3D 虚拟角色
   # ═══════════════════════════════════════════════════════
-  # 渲染 2D 虚拟角色模型，实现表情、动作等交互反馈
-  flutter_live2d:
-    path: ./vendor/flutter_live2d
-
-  # 3D 模型渲染（VRM/GLB 真全身 + 真抬腿验证用，model_viewer_plus 容器）
+  # 渲染 GLB 3D 角色（真骨骼动画：抬腿、摆臂、摇尾巴）。
+  # 实际生效版本由文件末尾 dependency_overrides 指向本地补丁副本
+  # packages/model_viewer_plus（修复 Android 上 WebGL 走路动画冻结）。
   model_viewer_plus: ^1.10.0
 
   # ═══════════════════════════════════════════════════════
@@ -131,18 +129,6 @@ flutter:
 
   # 项目静态资源目录
   assets:
-    # Live2D 模型资源目录（合规：Live2D 官方免费示例 Ren，Cubism 3）
-    # 注意：本环境 Flutter 对目录资源声明不递归子目录，
-    # 因此贴图/表情/动作子目录必须显式列出，否则模型缺资源而渲染空白。
-    - assets/live2d/ren/
-    - assets/live2d/ren/Ren.2048/
-    - assets/live2d/ren/expressions/
-    - assets/live2d/ren/motions/
-    # 官方完整版 Ren（腿真绑定，替代竹笌简化版）：同样需显式列出各子目录
-    - assets/live2d/ren_official/
-    - assets/live2d/ren_official/Ren.2048/
-    - assets/live2d/ren_official/expressions/
-    - assets/live2d/ren_official/motions/
     # 全局 Logo 竹子图案（v1.9）
     - assets/logo.png
     - assets/logo_mascot.png
