@@ -115,6 +115,8 @@ dependencies:
   # pointycastle 已随 livekit_client 引入（^4），显式声明以保证可用
   pointycastle: ^4.0.0
   flutter_secure_storage: ^9.2.0
+  # 音乐狗子创作台动画（.animate() 链式；仅本次合并新增，严禁升降其他依赖）
+  flutter_animate: ^4.5.0
 
 dev_dependencies:
   # Flutter 测试框架
