@@ -24,6 +24,8 @@ import '../../pages/profile/profile_page.dart';
 import '../../pages/pet/pet_page.dart';
 import '../../pages/pet/pet_fullscreen_page.dart';
 import '../../pages/pet/pet_library_page.dart';
+// 本次合并新增：音乐狗子创作台
+import '../../features/music_dog/pet/pet_studio_page.dart';
 
 /// GoRouter 实例 Provider
 /// main.dart 用 ref.watch(routerProvider) 注入到 MaterialApp.router
@@ -144,26 +146,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const PetLibraryPage(),
       ),
 
-      // 音乐狗子创作台（本次合并新增路由；Phase 2 暂挂占位，Phase 5 挂载真实 PetStudioPage）
+      // 音乐狗子创作台（本次合并新增路由；Phase 5 挂载真实 PetStudioPage）
       // 约束：仅新增，不改动现有 13 条路由与页面；禁止新增 MaterialApp / Navigator.push
       GoRoute(
         path: '/pet/studio',
         name: 'pet-studio',
-        builder: (context, state) => const _PendingStudioPlaceholder(),
+        builder: (context, state) => const PetStudioPage(),
       ),
     ],
   );
 });
-
-/// 音乐狗子创作台占位（Phase 2）
-/// 仅用于确认 /pet/studio 可导航且不引入副 App 业务；Phase 5 替换为真实 PetStudioPage。
-class _PendingStudioPlaceholder extends StatelessWidget {
-  const _PendingStudioPlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(child: Text('Music Dog Studio: pending integration')),
-    );
-  }
-}
