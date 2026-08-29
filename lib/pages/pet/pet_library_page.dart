@@ -47,6 +47,7 @@ class _PetLibraryPageState extends State<PetLibraryPage> with SingleTickerProvid
   Future<void> _loadLyrics() async {
     setState(() => _loadingLyrics = true);
     final items = await BackendService.instance.listLyrics();
+    if (!mounted) return;
     setState(() {
       _lyrics = items;
       _loadingLyrics = false;
@@ -56,6 +57,7 @@ class _PetLibraryPageState extends State<PetLibraryPage> with SingleTickerProvid
   Future<void> _loadSongs() async {
     setState(() => _loadingSongs = true);
     final items = await BackendService.instance.listSongs();
+    if (!mounted) return;
     setState(() {
       _songs = items;
       _loadingSongs = false;
