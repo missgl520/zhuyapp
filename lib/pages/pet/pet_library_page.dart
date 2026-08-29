@@ -263,9 +263,15 @@ class _PetLibraryPageState extends State<PetLibraryPage> with SingleTickerProvid
   }
 
   Widget _buildHistoryTab() {
-    return Center(
-      child: _buildEmptyState('生成历史', '音乐生成任务记录将显示在这里', AppIconName.history),
-    );
+    // 生成历史 = 已完成的音乐生成任务；后端在任务完成时写入 /songs，
+    // 因此直接复用歌曲列表（含播放/收藏/删除），不再用硬编码占位。
+    if (_loadingSongs) {
+      return const Center(child: CircularProgressIndicator(color: AppTheme.accent));
+    }
+    if (_songs.isEmpty) {
+      return _buildEmptyState('还没有生成历史', '去音乐狗子创作台生成第一首歌', AppIconName.history);
+    }
+    return _buildSongsTab();
   }
 
   Widget _buildEmptyState(String title, String desc, AppIconName icon) {
