@@ -216,7 +216,7 @@ class DogPainter extends CustomPainter {
 
   void _drawShadow(Canvas canvas, Offset center, double radius) {
     final shadowPaint = Paint()
-      ..color = Colors.black.withOpacity(0.15)
+      ..color = Colors.black.withValues(alpha: 0.15)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 15);
     canvas.drawOval(
       Rect.fromCenter(
@@ -234,9 +234,9 @@ class DogPainter extends CustomPainter {
       ..shader = RadialGradient(
         center: const Alignment(-0.3, -0.3),
         colors: [
-          _moodColor.withOpacity(0.9),
+          _moodColor.withValues(alpha: 0.9),
           _moodColor,
-          _moodColor.withOpacity(0.7),
+          _moodColor.withValues(alpha: 0.7),
         ],
         stops: const [0.0, 0.5, 1.0],
       ).createShader(Rect.fromCircle(center: center, radius: radius * 0.9));
@@ -245,7 +245,7 @@ class DogPainter extends CustomPainter {
 
     // 身体高光
     final highlightPaint = Paint()
-      ..color = Colors.white.withOpacity(0.3);
+      ..color = Colors.white.withValues(alpha: 0.3);
     canvas.drawOval(
       Rect.fromCenter(
         center: Offset(center.dx - radius * 0.25, center.dy - radius * 0.25),
@@ -265,7 +265,7 @@ class DogPainter extends CustomPainter {
       ..shader = RadialGradient(
         center: const Alignment(-0.3, -0.3),
         colors: [
-          _moodColor.withOpacity(0.95),
+          _moodColor.withValues(alpha: 0.95),
           _moodColor,
         ],
       ).createShader(Rect.fromCircle(center: headCenter, radius: headRadius));
@@ -274,7 +274,7 @@ class DogPainter extends CustomPainter {
 
     // 脸部白色区域
     final facePaint = Paint()
-      ..color = Colors.white.withOpacity(0.85);
+      ..color = Colors.white.withValues(alpha: 0.85);
     
     // 脸部椭圆
     final faceRect = Rect.fromCenter(
@@ -287,7 +287,7 @@ class DogPainter extends CustomPainter {
 
   void _drawEars(Canvas canvas, Offset center, double radius) {
     final earPaint = Paint()
-      ..color = _moodColor.withOpacity(0.85);
+      ..color = _moodColor.withValues(alpha: 0.85);
 
     // 左耳
     final leftEarPath = Path()
@@ -314,7 +314,7 @@ class DogPainter extends CustomPainter {
     canvas.drawPath(rightEarPath, earPaint);
 
     // 耳内颜色
-    final innerEarPaint = Paint()..color = AppTheme.sun.withOpacity(0.5);
+    final innerEarPaint = Paint()..color = AppTheme.sun.withValues(alpha: 0.5);
     canvas.drawCircle(
       Offset(center.dx - radius * 0.72, center.dy - radius * 0.85),
       radius * 0.12,
@@ -344,7 +344,7 @@ class DogPainter extends CustomPainter {
     canvas.drawCircle(center, radius * 1.3, eyeBgPaint);
 
     // 虹膜（根据心情变化）
-    final irisColor = _moodColor.withOpacity(0.8);
+    final irisColor = _moodColor.withValues(alpha: 0.8);
     final irisPaint = Paint()..color = irisColor;
     canvas.drawCircle(center, radius, irisPaint);
 
@@ -373,7 +373,7 @@ class DogPainter extends CustomPainter {
     );
 
     // 鼻子高光
-    final noseHighlight = Paint()..color = Colors.white.withOpacity(0.3);
+    final noseHighlight = Paint()..color = Colors.white.withValues(alpha: 0.3);
     canvas.drawCircle(
       Offset(noseCenter.dx - radius * 0.03, noseCenter.dy - radius * 0.03),
       radius * 0.04,
@@ -384,7 +384,7 @@ class DogPainter extends CustomPainter {
     _drawMouth(canvas, headCenter, radius);
 
     // 腮红
-    final blushPaint = Paint()..color = AppTheme.sun.withOpacity(0.35);
+    final blushPaint = Paint()..color = AppTheme.sun.withValues(alpha: 0.35);
     canvas.drawOval(
       Rect.fromCenter(
         center: Offset(headCenter.dx - radius * 0.35, headCenter.dy + radius * 0.1),
@@ -481,7 +481,7 @@ class DogPainter extends CustomPainter {
   }
 
   void _drawTail(Canvas canvas, Offset center, double radius) {
-    final tailPaint = Paint()..color = _moodColor.withOpacity(0.85);
+    final tailPaint = Paint()..color = _moodColor.withValues(alpha: 0.85);
     
     // 尾巴位置和摇摆幅度
     final tailStart = Offset(center.dx + radius * 0.7, center.dy + radius * 0.3);
@@ -508,12 +508,12 @@ class DogPainter extends CustomPainter {
   }
 
   void _drawLegs(Canvas canvas, Offset center, double radius) {
-    final legPaint = Paint()..color = _moodColor.withOpacity(0.85);
+    final legPaint = Paint()..color = _moodColor.withValues(alpha: 0.85);
     final legWidth = radius * 0.12;
     final legHeight = radius * 0.35;
 
     // 前腿
-    final frontLegPaint = Paint()..color = _moodColor.withOpacity(0.9);
+    final frontLegPaint = Paint()..color = _moodColor.withValues(alpha: 0.9);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromCenter(
@@ -620,7 +620,7 @@ class SpeechBubble extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: Colors.black.withValues(alpha: 0.1),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -652,11 +652,11 @@ class LoveMeterBar extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.9),
+        color: Colors.white.withValues(alpha: 0.9),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: AppTheme.sun.withOpacity(0.2),
+            color: AppTheme.sun.withValues(alpha: 0.2),
             blurRadius: 8,
           ),
         ],
@@ -727,9 +727,9 @@ class PetActionButton extends StatelessWidget {
             width: 50,
             height: 50,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
+              color: color.withValues(alpha: 0.15),
               shape: BoxShape.circle,
-              border: Border.all(color: color.withOpacity(0.3), width: 2),
+              border: Border.all(color: color.withValues(alpha: 0.3), width: 2),
             ),
             child: Icon(icon, color: color, size: 24),
           ),
@@ -738,7 +738,7 @@ class PetActionButton extends StatelessWidget {
             label,
             style: TextStyle(
               fontSize: 11,
-              color: color.withOpacity(0.8),
+              color: color.withValues(alpha: 0.8),
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -899,8 +899,8 @@ class _ChattyDogPetState extends State<ChattyDogPet>
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            _moodGradientColors[_state.mood]!.first.withOpacity(0.3),
-            _moodGradientColors[_state.mood]!.last.withOpacity(0.1),
+            _moodGradientColors[_state.mood]!.first.withValues(alpha: 0.3),
+            _moodGradientColors[_state.mood]!.last.withValues(alpha: 0.1),
           ],
         ),
       ),
@@ -1008,9 +1008,9 @@ class _ChattyDogPetState extends State<ChattyDogPet>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: moodInfo.color.withOpacity(0.15),
+        color: moodInfo.color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: moodInfo.color.withOpacity(0.3)),
+        border: Border.all(color: moodInfo.color.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

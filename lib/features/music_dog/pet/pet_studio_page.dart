@@ -1,55 +1,62 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:zhuyapp/core/theme/app_theme.dart';
 import 'package:just_audio/just_audio.dart';
-import 'chatty_dog_pet.dart';
+import 'package:zhuyapp/core/theme/app_theme.dart';
+import 'package:zhuyapp/core/services/backend_service.dart';
+import 'package:zhuyapp/core/services/tts_service.dart';
+import 'package:zhuyapp/core/config.dart';
+import 'package:zhuyapp/features/music_dog/pet/chatty_dog_pet.dart';
+import 'package:zhuyapp/features/music_dog/pet/music_dog_models.dart';
+
+/// 将后端返回的（可能为相对路径的）音频地址拼成可播放的绝对 URL。
+String _absUrl(String url) {
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  final base = BackendConfig.instance.baseUrl;
+  final sep = base.endsWith('/') ? '' : '/';
+  return '$base$sep$url';
+}
 
 /// 宠物创作助手页面
 /// 3D宠物 + 对话 + 歌词展示 + 音乐生成
-class PetStudioPage extends StatefulWidget {
+class PetStudioPage extends ConsumerStatefulWidget {
   const PetStudioPage({super.key});
 
   @override
-  State<PetStudioPage> createState() => _PetStudioPageState();
+  ConsumerState<PetStudioPage> createState() => _PetStudioPageState();
 }
 
-class _PetStudioPageState extends State<PetStudioPage>
+class _PetStudioPageState extends ConsumerState<PetStudioPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final PetApiService _api = PetApiService();
-  ApiPetState _petState = ApiPetState(mood: 'happy', love: 50.0, totalBarks: 0, songsCreated: 0);
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _loadPetState();
-  }
-
-  Future<void> _loadPetState() async {
-    try {
-      final state = await _api.getPetState();
-      if (mounted) setState(() => _petState = state);
-    } catch (e) {
-      // 后端未启动时使用默认状态
-    }
   }
 
   @override
   void dispose() {
     _tabController.dispose();
-    _api.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final petStateAsync = ref.watch(petStateProvider);
+    final petState = petStateAsync.when(
+      data: (s) => s,
+      loading: () => const ZhuyPetState(),
+      error: (_, __) => const ZhuyPetState(),
+    );
+
     return Scaffold(
       body: Column(
         children: [
           // 顶部宠物状态栏
-          _PetStatusBar(state: _petState),
+          _PetStatusBar(state: petState),
 
           // Tab: 创作台 / 歌词库 / 关于
           Container(
@@ -72,9 +79,9 @@ class _PetStudioPageState extends State<PetStudioPage>
             child: TabBarView(
               controller: _tabController,
               children: [
-                _CreationStudio(api: _api, petState: _petState),
-                _LyricsLibrary(api: _api),
-                _PetAloneScreen(petState: _petState, api: _api),
+                const _CreationStudio(),
+                const _LyricsLibrary(),
+                _PetAloneScreen(petState: petState),
               ],
             ),
           ),
@@ -88,7 +95,7 @@ class _PetStudioPageState extends State<PetStudioPage>
 // 宠物状态栏
 // ═══════════════════════════════════════════════
 class _PetStatusBar extends StatelessWidget {
-  final ApiPetState state;
+  final ZhuyPetState state;
   const _PetStatusBar({required this.state});
 
   @override
@@ -114,7 +121,7 @@ class _PetStatusBar extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Text(
-            ApiPetState.moodEmojis[state.mood] ?? '😄',
+            ZhuyPetState.moodEmojis[state.mood] ?? '😄',
             style: const TextStyle(fontSize: 16),
           ),
           const Spacer(),
@@ -165,9 +172,7 @@ class _PetStatusBar extends StatelessWidget {
 // 创作台（核心页面）
 // ═══════════════════════════════════════════════
 class _CreationStudio extends StatefulWidget {
-  final PetApiService api;
-  final ApiPetState petState;
-  const _CreationStudio({required this.api, required this.petState});
+  const _CreationStudio();
 
   @override
   State<_CreationStudio> createState() => _CreationStudioState();
@@ -185,6 +190,13 @@ class _CreationStudioState extends State<_CreationStudio> {
   MusicResult? _lastMusic;
   bool _isGeneratingMusic = false;
 
+  // TTS 单例（懒加载，复用同一个 AudioPlayer）
+  TtsService? _tts;
+  TtsService get _ttsService {
+    _tts ??= TtsService();
+    return _tts!;
+  }
+
   // 快捷语
   static const _quickPrompts = [
     ('写首歌', '帮我写一首关于{}的歌曲'),
@@ -199,45 +211,6 @@ class _CreationStudioState extends State<_CreationStudio> {
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _loadHistory();
-  }
-
-  Future<void> _loadHistory() async {
-    try {
-      final history = await LocalChatRepository.instance.getRecentHistory();
-      if (!mounted) return;
-      setState(() {
-        _messages.addAll(history.map((m) => _ChatBubble(
-              isUser: m.isUser, text: m.content, isError: m.isError)));
-      });
-      _scrollToBottom();
-      _tryFlush();
-    } catch (_) {
-      // 本地库不可用时静默降级（纯内存会话）
-    }
-  }
-
-  Future<void> _tryFlush() async {
-    try {
-      final n = await LocalChatRepository.instance.flushOutbox(
-        (msgs, {petMood}) => widget.api.chat(msgs, petMood: petMood),
-      );
-      if (n > 0 && mounted) {
-        final history = await LocalChatRepository.instance.getRecentHistory();
-        if (!mounted) return;
-        setState(() {
-          _messages
-            ..clear()
-            ..addAll(history.map((m) => _ChatBubble(
-                isUser: m.isUser, text: m.content, isError: m.isError)));
-        });
-      }
-    } catch (_) {}
   }
 
   void _scrollToBottom() {
@@ -263,13 +236,8 @@ class _CreationStudioState extends State<_CreationStudio> {
     });
     _scrollToBottom();
 
-    final clientMsgId =
-        await LocalChatRepository.instance.appendUserMessage(content: text);
-
     try {
-      final result = await widget.api.chat([
-        ChatMessage(role: 'user', content: text),
-      ]);
+      final result = await askDog(text);
 
       if (!mounted) return;
 
@@ -278,15 +246,10 @@ class _CreationStudioState extends State<_CreationStudio> {
         _isLoading = false;
       });
 
-      await LocalChatRepository.instance.appendAssistantMessage(
-        clientMsgId: clientMsgId,
-        content: result.reply,
-      );
-      await LocalChatRepository.instance.markSynced(clientMsgId);
-
       // 语音播报（失败静默降级，不影响对话）
-      TtsService.instance.setEnabled(_ttsEnabled);
-      TtsService.instance.speak(result.reply);
+      if (_ttsEnabled) {
+        _ttsService.speak(result.reply);
+      }
 
       // 如果有歌词创作意图，自动调用
       if (result.hasLyricsIntent) {
@@ -295,6 +258,7 @@ class _CreationStudioState extends State<_CreationStudio> {
           theme: intent['主题'] ?? intent['theme'] ?? '自由创作',
           style: intent['风格'] ?? intent['style'] ?? '流行',
           mood: intent['情绪'] ?? intent['mood'] ?? '欢快',
+          content: result.reply,
         );
       }
 
@@ -313,11 +277,6 @@ class _CreationStudioState extends State<_CreationStudio> {
       _scrollToBottom();
     } catch (e) {
       if (!mounted) return;
-      await LocalChatRepository.instance.enqueueOutbox(
-        clientMsgId: clientMsgId,
-        content: text,
-      );
-      await LocalChatRepository.instance.markError(clientMsgId);
       setState(() {
         _messages.add(_ChatBubble(
           isUser: false,
@@ -333,35 +292,40 @@ class _CreationStudioState extends State<_CreationStudio> {
     required String theme,
     required String style,
     required String mood,
+    required String content,
   }) async {
     setState(() => _isLoading = true);
 
     try {
-      final result = await widget.api.createLyrics(
-        theme: theme,
-        style: style,
+      final id = await BackendService.instance.createLyrics(
+        title: theme,
+        content: content,
         mood: mood,
-        userMood: _detectUserMood(),
+        tags: [style],
       );
 
       if (!mounted) return;
 
       setState(() {
-        _lastLyrics = result;
-        _messages.add(_ChatBubble(
-          isUser: false,
-          text: result.petReaction,
-          isHighlight: true,
-        ));
+        _lastLyrics = LyricsResult(
+          id: id,
+          lyrics: content,
+          style: style,
+          mood: mood,
+          petReaction: '已经帮你写好《$theme》的歌词啦～',
+          note: '由狗子创作台生成',
+        );
         _isLoading = false;
       });
       _scrollToBottom();
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('歌词创作失败: $e')),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('歌词创作失败: $e')),
+        );
+      }
     }
   }
 
@@ -372,35 +336,70 @@ class _CreationStudioState extends State<_CreationStudio> {
   }) async {
     setState(() => _isGeneratingMusic = true);
 
-    try {
-      final result = await widget.api.generateMusic(
-        lyrics: lyrics,
-        prompt: prompt,
-        duration: duration,
-      );
+    final audioUrl = await _pollMusicJob(lyrics: lyrics, prompt: prompt, duration: duration);
 
-      if (!mounted) return;
+    if (!mounted) return;
 
+    if (audioUrl != null) {
+      final full = _absUrl(audioUrl);
       setState(() {
-        _lastMusic = result;
-        _messages.add(_ChatBubble(
-          isUser: false,
-          text: result.petReaction,
-          isHighlight: true,
-        ));
+        _lastMusic = MusicResult(
+          petReaction: '🎵 歌曲生成好啦！',
+          audioUrl: full,
+          duration: duration,
+        );
         _isGeneratingMusic = false;
       });
-      _scrollToBottom();
-
-      if (result.audioUrl != null) {
-        _showMusicPlayer(result.audioUrl!, result.duration);
-      }
-    } catch (e) {
-      if (!mounted) return;
+      _showMusicPlayer(full, duration);
+    } else {
       setState(() => _isGeneratingMusic = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('音乐生成失败: $e')),
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('音乐生成失败或超时')),
+        );
+      }
+    }
+    _scrollToBottom();
+  }
+
+  /// 发起音乐生成（异步任务）并轮询状态，返回可播放的绝对音频 URL。
+  Future<String?> _pollMusicJob({
+    required String lyrics,
+    required String prompt,
+    required int duration,
+  }) async {
+    try {
+      int? lyricsId = _lastLyrics?.id;
+      if (lyricsId == null) {
+        lyricsId = await BackendService.instance.createLyrics(
+          title: '生成音乐歌词',
+          content: lyrics,
+          mood: '',
+          tags: [],
+        );
+      }
+      final jobId = await BackendService.instance.generateMusic(
+        prompt: prompt,
+        lyricsId: lyricsId,
+        style: prompt,
+        title: '',
       );
+      if (jobId == null) return null;
+
+      for (var i = 0; i < 30; i++) {
+        await Future.delayed(const Duration(seconds: 2));
+        final job = await BackendService.instance.getMusicJob(jobId);
+        if (job == null) continue;
+        final status = (job['status'] as String?) ?? '';
+        if (status == 'done') {
+          return (job['audio_url'] as String?);
+        } else if (status == 'failed') {
+          return null;
+        }
+      }
+      return null;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -413,15 +412,6 @@ class _CreationStudioState extends State<_CreationStudio> {
       ),
       builder: (context) => _MusicPlayer(url: url, duration: duration),
     );
-  }
-
-  String? _detectUserMood() {
-    // 简单情绪检测
-    final lastUserMsg = _messages.lastWhereOrNull((m) => m.isUser)?.text ?? '';
-    if (lastUserMsg.contains(RegExp('难过|伤心|痛苦|分手|失去'))) return 'sad';
-    if (lastUserMsg.contains(RegExp('开心|高兴|棒|酷'))) return 'happy';
-    if (lastUserMsg.contains(RegExp('激动|热血|燃'))) return 'excited';
-    return null;
   }
 
   @override
@@ -487,7 +477,7 @@ class _CreationStudioState extends State<_CreationStudio> {
             color: Colors.white,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha: 0.05),
                 blurRadius: 8,
                 offset: const Offset(0, -2),
               ),
@@ -628,7 +618,7 @@ class _LyricsPreview extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.7),
+                  color: Colors.white.withValues(alpha: 0.7),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
@@ -656,7 +646,7 @@ class _LyricsPreview extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════
-// 音乐播放器
+// 音乐播放器（just_audio 0.9.46 流式 API；单 URL 播放/暂停/拖动进度）
 // ═══════════════════════════════════════════════
 class _MusicPlayer extends StatefulWidget {
   final String url;
@@ -741,13 +731,18 @@ class _MusicPlayerState extends State<_MusicPlayer> {
               padding: const EdgeInsets.symmetric(horizontal: 8),
               child: Column(
                 children: [
-                  LinearProgressIndicator(
+                  Slider(
                     value: (pos / total).clamp(0.0, 1.0),
-                    backgroundColor: AppTheme.borderSoft,
-                    valueColor: AlwaysStoppedAnimation(AppTheme.sun),
-                    minHeight: 4,
+                    min: 0,
+                    max: 1,
+                    activeColor: AppTheme.sun,
+                    inactiveColor: AppTheme.borderSoft,
+                    onChanged: (v) async {
+                      try {
+                        await _player.seek(Duration(seconds: (v * total).toInt()));
+                      } catch (_) {}
+                    },
                   ),
-                  const SizedBox(height: 4),
                   Text('$pos / $total 秒', style: TextStyle(color: AppTheme.meta, fontSize: 12)),
                 ],
               ),
@@ -770,13 +765,11 @@ class _MusicPlayerState extends State<_MusicPlayer> {
 class _ChatBubble extends StatelessWidget {
   final bool isUser;
   final String text;
-  final bool isHighlight;
   final bool isError;
 
   const _ChatBubble({
     required this.isUser,
     required this.text,
-    this.isHighlight = false,
     this.isError = false,
   });
 
@@ -794,20 +787,18 @@ class _ChatBubble extends StatelessWidget {
           color: isUser
               ? AppTheme.sun
               : isError
-                  ? AppTheme.danger.withOpacity(0.08)
-                  : isHighlight
-                      ? AppTheme.accentSoft
-                      : Colors.white,
+                  ? AppTheme.danger.withValues(alpha: 0.08)
+                  : Colors.white,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(18),
             topRight: const Radius.circular(18),
             bottomLeft: isUser ? const Radius.circular(18) : Radius.zero,
             bottomRight: isUser ? Radius.zero : const Radius.circular(18),
           ),
-          border: isHighlight ? Border.all(color: AppTheme.accent) : null,
+          border: null,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(isUser ? 0.1 : 0.05),
+              color: Colors.black.withValues(alpha: isUser ? 0.1 : 0.05),
               blurRadius: 4,
               offset: const Offset(0, 2),
             ),
@@ -859,7 +850,7 @@ class _TypingIndicator extends StatelessWidget {
             bottomRight: Radius.circular(18),
           ),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4),
           ],
         ),
         child: Row(
@@ -949,40 +940,71 @@ class _EmptyStudio extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════
-// 歌词库
+// 歌词库（真实数据：后端 /lyrics 列表）
 // ═══════════════════════════════════════════════
-class _LyricsLibrary extends StatelessWidget {
-  final PetApiService api;
-  const _LyricsLibrary({required this.api});
+class _LyricsLibrary extends StatefulWidget {
+  const _LyricsLibrary();
 
-  static const _demoSongs = [
-    {
-      'title': '心被狗吃了',
-      'style': '民谣',
-      'mood': '治愈',
-      'preview': '路灯拉长了影子\n我在街头数着步子\n你走后世界安静了\n只剩心跳的声音',
-    },
-    {
-      'title': '少年追光',
-      'style': '流行',
-      'mood': '热血',
-      'preview': '逆风的方向\n更适合飞翔\n我不怕万人阻挡\n只怕自己投降',
-    },
-    {
-      'title': '午夜电波',
-      'style': 'DJ电音',
-      'mood': '欢快',
-      'preview': 'Drop the beat now!\n霓虹灯闪烁\n在午夜街头\n我们是最自由的灵魂',
-    },
-  ];
+  @override
+  State<_LyricsLibrary> createState() => _LyricsLibraryState();
+}
+
+class _LyricsLibraryState extends State<_LyricsLibrary> {
+  List<Map<String, dynamic>> _songs = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLyrics();
+  }
+
+  Future<void> _loadLyrics() async {
+    try {
+      final items = await BackendService.instance.listLyrics(limit: 50);
+      if (!mounted) return;
+      setState(() {
+        _songs = items;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_songs.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('📝', style: TextStyle(fontSize: 56, color: AppTheme.sunSoft)),
+            const SizedBox(height: 12),
+            Text('还没有歌词', style: TextStyle(color: AppTheme.meta, fontSize: 16)),
+            const SizedBox(height: 6),
+            Text(
+              '在「创作台」跟狗子说“帮我写首歌”吧',
+              style: TextStyle(color: AppTheme.muted, fontSize: 13),
+            ),
+          ],
+        ),
+      );
+    }
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: _demoSongs.length,
+      itemCount: _songs.length,
       itemBuilder: (context, index) {
-        final song = _demoSongs[index];
+        final song = _songs[index];
+        final title = (song['title'] as String?) ?? '无题';
+        final tags = song['tags'];
+        final style = (tags is List && tags.isNotEmpty) ? tags.first.toString() : '流行';
+        final mood = (song['mood'] as String?) ?? '';
+        final content = (song['content'] as String?) ?? '';
+        final preview = content.split('\n').take(4).join('\n');
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
           child: Padding(
@@ -994,7 +1016,7 @@ class _LyricsLibrary extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        song['title']!,
+                        title,
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -1002,46 +1024,31 @@ class _LyricsLibrary extends StatelessWidget {
                       ),
                     ),
                     Chip(
-                      label: Text(song['style']!, style: const TextStyle(fontSize: 11)),
+                      label: Text(style, style: const TextStyle(fontSize: 11)),
                       backgroundColor: AppTheme.accentSoft,
                       side: BorderSide(color: AppTheme.accent),
                       padding: EdgeInsets.zero,
                       visualDensity: VisualDensity.compact,
                     ),
                     const SizedBox(width: 6),
-                    Chip(
-                      label: Text(song['mood']!, style: const TextStyle(fontSize: 11)),
-                      backgroundColor: AppTheme.sunSoft,
-                      side: BorderSide(color: AppTheme.sunSoft),
-                      padding: EdgeInsets.zero,
-                      visualDensity: VisualDensity.compact,
-                    ),
+                    if (mood.isNotEmpty)
+                      Chip(
+                        label: Text(mood, style: const TextStyle(fontSize: 11)),
+                        backgroundColor: AppTheme.sunSoft,
+                        side: BorderSide(color: AppTheme.sunSoft),
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                      ),
                   ],
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  song['preview']!,
+                  preview,
                   style: TextStyle(
                     fontSize: 13,
                     color: AppTheme.meta,
                     height: 1.6,
                   ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Icon(Icons.play_arrow, color: AppTheme.meta, size: 20),
-                    const SizedBox(width: 4),
-                    Text('播放', style: TextStyle(fontSize: 12, color: AppTheme.meta)),
-                    const SizedBox(width: 16),
-                    Icon(Icons.edit, color: AppTheme.meta, size: 20),
-                    const SizedBox(width: 4),
-                    Text('编辑', style: TextStyle(fontSize: 12, color: AppTheme.meta)),
-                    const SizedBox(width: 16),
-                    Icon(Icons.share, color: AppTheme.meta, size: 20),
-                    const SizedBox(width: 4),
-                    Text('分享', style: TextStyle(fontSize: 12, color: AppTheme.meta)),
-                  ],
                 ),
               ],
             ),
@@ -1056,9 +1063,8 @@ class _LyricsLibrary extends StatelessWidget {
 // 单独宠物页面
 // ═══════════════════════════════════════════════
 class _PetAloneScreen extends StatelessWidget {
-  final ApiPetState petState;
-  final PetApiService api;
-  const _PetAloneScreen({required this.petState, required this.api});
+  final ZhuyPetState petState;
+  const _PetAloneScreen({required this.petState});
 
   @override
   Widget build(BuildContext context) {
