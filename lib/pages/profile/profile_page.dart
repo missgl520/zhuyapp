@@ -97,9 +97,7 @@ class ProfilePage extends StatelessWidget {
                   _MenuTile(
                     icon: Icons.settings_outlined,
                     label: '设置',
-                    onTap: () {
-                      // TODO: 设置页
-                    },
+                    onTap: () => context.push('/settings'),
                   ),
                   _MenuTile(
                     icon: Icons.history,

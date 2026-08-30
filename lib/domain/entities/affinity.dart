@@ -17,6 +17,12 @@
 //   100+       灵魂伴侣 → 最深层关系
 //
 // 数据来源：后端 /affinity 接口，SinoMem 持久化
+//
+// 上游：presentation/providers（好感度展示）、ChatRepositoryImpl。
+// 下游：无（纯 Dart 实体，不依赖任何框架）。
+//
+// 关键点：本实体与 BackendService 里的 BackendAffinityData 字段基本一致，
+//   但多出 streakDays；二者不可互相替代，跨层传递时需显式转换。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'package:flutter/foundation.dart';
@@ -47,10 +53,10 @@ class Affinity {
     this.streakDays = 0,
   });
 
-  /// 初始值（新建用户）
+  /// 初始值（新建用户）：信任 30 / 亲密 20 / 熟悉 5。
   factory Affinity.initial() => const Affinity();
 
-  /// 从后端 JSON 构造
+  /// 从后端 JSON 构造；字段缺失或类型异常时回落默认值。
   factory Affinity.fromJson(Map<String, dynamic> json) {
     return Affinity(
       trust: (json['trust'] as num?)?.toDouble() ?? 30,
@@ -85,7 +91,7 @@ class Affinity {
   /// 好感度是否为空（初始状态）
   bool get isEmpty => totalInteractions == 0;
 
-  /// 好感度是否达到某个阈值
+  /// 好感度是否达到某个阈值 [threshold]（0-100），用于解锁徽章/特殊行为。
   bool hasReached(double threshold) => total >= threshold;
 
   /// 克隆并修改字段

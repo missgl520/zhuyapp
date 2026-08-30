@@ -657,7 +657,7 @@ class _PetPageState extends State<PetPage> with TickerProviderStateMixin {
           const Text('音乐创作', style: TextStyle(fontSize: AppTheme.textMd, fontWeight: FontWeight.w600, color: AppTheme.fg)),
           const SizedBox(height: AppTheme.space3),
           _buildMusicEntry('生成音乐', '用歌词或灵感创作一首新歌', AppIconName.music, AppTheme.ember, () {
-            context.push('/pet/library');
+            context.push('/pet/studio');
           }),
           const SizedBox(height: AppTheme.space2),
           _buildMusicEntry('歌词库', '管理你的歌词创作', AppIconName.fileText, AppTheme.accent, () {

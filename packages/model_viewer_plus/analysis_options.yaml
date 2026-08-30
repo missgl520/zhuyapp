@@ -1,4 +1,5 @@
-include: package:carapacik_lints/core.yaml
+# 原 upstream 引用了 package:carapacik_lints（本项目未引入该依赖，会导致分析告警）
+# 这里改为直接内联需要的规则，避免 include 找不到文件。
 
 linter:
   rules:

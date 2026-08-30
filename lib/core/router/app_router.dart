@@ -6,6 +6,15 @@
 // 路由列表（对齐 zhuyapp-design-2.0.md）：
 //   /        → 启动页（SplashPage，2.5s 后自动跳转 /chat）
 //   /chat    → 对话页（ChatPage），带淡入+上滑过渡动画
+//
+// 上游：main.dart（ref.watch(routerProvider) 注入 MaterialApp.router）。
+// 下游：pages/* 与 features/music_dog/pet/pet_studio_page.dart 各页面 Widget。
+//
+// 关键点：
+//   1. 全 App 只有一个 GoRouter 实例，页面跳转统一用 context.go/push，
+//      禁止再自建 MaterialApp 或 Navigator.push，否则返回栈会割裂。
+//   2. /legal 与 /info 通过 query 参数 type 区分子页面，
+//      新增子类型时无需加路由。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'package:flutter/material.dart';
@@ -14,6 +23,7 @@ import 'package:go_router/go_router.dart';
 import '../../pages/splash/splash_page.dart';
 import '../../pages/chat/chat_page.dart';
 import '../../pages/settings/memory_history_page.dart';
+import '../../pages/settings/settings_page.dart';
 import '../../pages/voice/voice_call_page.dart';
 import '../../pages/legal/legal_page.dart';
 import '../../pages/settings/info_modules_page.dart';
@@ -29,6 +39,8 @@ import '../../features/music_dog/pet/pet_studio_page.dart';
 
 /// GoRouter 实例 Provider
 /// main.dart 用 ref.watch(routerProvider) 注入到 MaterialApp.router
+///
+/// 全 App 唯一路由表；新增页面时在此追加 GoRoute，不要另建导航栈。
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/',
@@ -92,6 +104,13 @@ final routerProvider = Provider<GoRouter>((ref) {
           final type = state.uri.queryParameters['type'] ?? 'version-intro';
           return InfoModulesPage(type: type);
         },
+      ),
+
+      // 设置页（后端地址 / 情感角色 / 唤醒词 / 清除记忆）
+      GoRoute(
+        path: '/settings',
+        name: 'settings',
+        builder: (context, state) => const SettingsPage(),
       ),
       // 3D 角色独立全屏页（二级程序：把「狗子」放在独立全屏查看）
       GoRoute(

@@ -13,6 +13,14 @@
 //   成功即删除，天然不重复。
 //
 // 重试：指数退避（1s → 2s → 4s … 上限 30s），避免压垮客户端/服务端。
+//
+// 上游：main.dart（启动）、UI（通过 syncStream 感知同步完成）。
+// 下游：ChatLocalDataSource（读写发件箱）、ChatService（补发请求）、
+//       connectivity_plus（网络状态）。
+//
+// 关键点：
+//   1. _syncing 标志做并发保护，定时器与网络回调同时触发时只跑一个 flush。
+//   2. 补发时携带原始 client_msg_id，后端可去重；成功后立即删除发件箱条目。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'dart:async';
@@ -20,9 +28,11 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import '../../data/datasources/chat_local_data_source.dart';
 import '../../data/services/chat_service.dart';
 
+/// 离线优先同步引擎：把发件箱里未送达的用户消息补发给后端。
 class SyncEngine {
   SyncEngine._();
 
+  /// 全局单例访问器。
   static final SyncEngine instance = SyncEngine._();
 
   final Connectivity _connectivity = Connectivity();
@@ -37,6 +47,9 @@ class SyncEngine {
   bool _started = false;
   bool _syncing = false;
 
+  /// 启动同步引擎：注册网络监听 + 立即尝试一次 + 30s 定时兜底。
+  ///
+  /// 在 main() 中调用一次即可；重复调用会被 _started 挡住。
   Future<void> start() async {
     if (_started) return;
     _started = true;
@@ -54,6 +67,7 @@ class SyncEngine {
     Timer.periodic(const Duration(seconds: 30), (_) => _flush());
   }
 
+  /// 遍历发件箱逐条补发；已在同步中则直接返回。
   Future<void> _flush() async {
     if (_syncing) return;
     _syncing = true;
@@ -67,6 +81,9 @@ class SyncEngine {
     }
   }
 
+  /// 补发单条消息：先按尝试次数退避等待，再带着本地历史重放。
+  ///
+  /// 成功后写入 AI 回复、标记已同步并通知 UI；失败则累加 attempts。
   Future<void> _resend(OutboxItem item) async {
     // 指数退避：已尝试次数越多，等待越久（上限 30s）
     if (item.attempts > 0) {

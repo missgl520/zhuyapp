@@ -36,10 +36,17 @@
 //   - 深色底为竹调深 #0E1512（非紫调 navy #1A1A2E）
 //   - 卡片圆角上限 16px
 //   - 间距 4px 网格（禁止 5/7/13/15/22/30）
+//
+// 上游：main.dart（MaterialApp 的 theme / darkTheme）。
+// 下游：无（纯常量与 ThemeData 构造，不依赖任何服务）。
+//
+// 关键点：新增页面请只用本文件的令牌，不要散落硬编码色值与间距，
+//   否则暗色模式与 P0 设计红线会逐步失控。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'package:flutter/material.dart';
 
+/// 竹笌设计令牌与主题数据（不可实例化，全部为静态常量）。
 class AppTheme {
   AppTheme._();
 
@@ -182,16 +189,37 @@ class AppTheme {
   // 间距（4px 网格，禁止 5/7/13/15/22/30）
   // ════════════════════════════════════════════════════════
 
+  /// 4px：图标与文字的最小间隙。
   static const double space1 = 4.0;
+
+  /// 8px：紧凑内边距。
   static const double space2 = 8.0;
+
+  /// 12px：列表项内部间距。
   static const double space3 = 12.0;
+
+  /// 16px：标准内边距。
   static const double space4 = 16.0;
+
+  /// 20px：卡片内边距。
   static const double space5 = 20.0;
+
+  /// 24px：区块间距。
   static const double space6 = 24.0;
+
+  /// 32px：大区块间距。
   static const double space8 = 32.0;
+
+  /// 40px：页面顶部留白。
   static const double space10 = 40.0;
+
+  /// 48px：分区标题上下留白。
   static const double space12 = 48.0;
+
+  /// 64px：大分区留白。
   static const double space16 = 64.0;
+
+  /// 80px：首屏 hero 区留白。
   static const double space20 = 80.0;
 
   /// 兼容旧命名
@@ -231,14 +259,28 @@ class AppTheme {
   /// 等宽字体（歌词时间轴/波形标签）：JetBrains Mono
   static const String fontMono = 'JetBrains Mono';
 
-  /// 字阶（8级）
+  /// 字阶（8级）：12px 辅助说明。
   static const double textXs = 12.0;
+
+  /// 字阶：14px 次级正文。
   static const double textSm = 14.0;
+
+  /// 字阶：16px 正文基准。
   static const double textBase = 16.0;
+
+  /// 字阶：18px 小标题。
   static const double textMd = 18.0;
+
+  /// 字阶：20px 标题。
   static const double textLg = 20.0;
+
+  /// 字阶：24px 大标题。
   static const double textXl = 24.0;
+
+  /// 字阶：32px 展示级文案。
   static const double text2xl = 32.0;
+
+  /// 字阶：40px 首屏主标题。
   static const double text3xl = 40.0;
 
   /// 兼容旧命名（字体大小）
@@ -250,8 +292,13 @@ class AppTheme {
   // 动效（≤200ms，prefers-reduced-motion 关闭非必要动画）
   // ════════════════════════════════════════════════════════
 
+  /// 150ms：微交互（按钮按下、颜色过渡）。
   static const Duration motionFast = Duration(milliseconds: 150);
+
+  /// 200ms：常规过渡（列表项展开），也是动效时长上限。
   static const Duration motionBase = Duration(milliseconds: 200);
+
+  /// 320ms：页面级转场。
   static const Duration motionPage = Duration(milliseconds: 320);
 
   // ════════════════════════════════════════════════════════

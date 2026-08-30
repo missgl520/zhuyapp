@@ -21,6 +21,12 @@
 //   awe        敬畏
 //
 // 情绪来源：后端 /emotion 接口，返回识别结果
+//
+// 上游：对话页（情绪气泡/表情联动）、TTS（按情绪驱动嗓音）。
+// 下游：无（纯 Dart 实体 + 两个展示用工具函数）。
+//
+// 关键点：主标签 emotion 用小写英文字符串（happy/sad/...），
+//   与后端及 TTS 的 emo_text 保持一致；展示文案统一走 emotionLabel。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'package:flutter/foundation.dart';
@@ -47,6 +53,8 @@ class Emotion {
 
   /// 从后端 JSON 构造
   /// 后端返回格式：{ "emotion": "happy", "confidence": 0.92, "scores": {...} }
+  ///
+  /// scores 缺失时退化为空 Map，不会抛异常。
   factory Emotion.fromJson(Map<String, dynamic> json) {
     return Emotion(
       emotion: json['emotion'] as String? ?? 'neutral',
@@ -66,7 +74,7 @@ class Emotion {
     'scores': scores,
   };
 
-  /// 获取某一维度的情绪强度
+  /// 获取某一维度（如 'joy' / 'sadness'）的强度；不存在返回 0.0。
   double score(String dimension) => scores[dimension] ?? 0.0;
 
   /// 是否为正面情绪（joy / happy / proud / curious）
@@ -82,6 +90,8 @@ class Emotion {
 }
 
 /// 情绪标签 → emoji 图标（UI 展示用，集中管理避免散落各处）
+///
+/// 大小写不敏感；未收录的标签回落为中性表情。
 String emotionEmoji(String label) {
   switch (label.toLowerCase()) {
     case 'happy':
@@ -113,6 +123,8 @@ String emotionEmoji(String label) {
 }
 
 /// 情绪标签 → 中文文案
+///
+/// 大小写不敏感；未收录的标签回落为「平静」。
 String emotionLabel(String label) {
   switch (label.toLowerCase()) {
     case 'happy':

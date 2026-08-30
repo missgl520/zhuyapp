@@ -14,6 +14,16 @@
 // livekit_client 冲突的 encrypt 包（两者对 pointycastle 版本要求不兼容）。
 //
 // 兼容：解密失败（旧明文数据 / 损坏行）一律原样返回，保证老库不崩。
+//
+// 上游：ChatLocalDataSource（对话历史 content）、MemoryService（记忆 content）。
+// 下游：flutter_secure_storage（密钥存放）、pointycastle（AES 实现）。
+//
+// 关键点：
+//   1. 每次加密都用 Random.secure() 生成新 IV，IV 以明文拼在密文前 16 字节，
+//      解密时按 `iv(16) + ciphertext` 切片。
+//   2. 密钥按安装生成并缓存在内存，卸载重装后旧密文不可解——
+//      因此 decrypt 必须容错，不能抛异常。
+//   3. 本项目已移除 Web 平台支持，上述 Web 端说明仅为历史记录。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'dart:convert';
@@ -26,7 +36,12 @@ import 'package:pointycastle/block/modes/cbc.dart';
 import 'package:pointycastle/paddings/pkcs7.dart';
 import 'package:pointycastle/padded_block_cipher/padded_block_cipher_impl.dart';
 
+/// 本地静态加密工具类（无状态，全部静态方法）
+///
+/// 用于 SQLite 落盘的敏感字段（对话正文、记忆正文）加解密，
+/// 满足个人信息「存储加密」的合规要求。
 class LocalEncryption {
+  /// 安全存储中保存密钥的键名。
   static const String _keyTag = 'zhuyu_local_enc_key';
 
   static const FlutterSecureStorage _storage = FlutterSecureStorage(

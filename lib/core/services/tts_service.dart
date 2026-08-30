@@ -5,6 +5,15 @@
 // 流程：调用后端 /tts 接口 -> 拿到 WAV 字节 -> just_audio 播放
 // 情绪：把聊天情绪(emotion)传给后端，由 IndexTTS 的 emo_text 控制嗓音情绪
 // 离线优先：TTS 失败（服务未起 / 网络断开）时静默跳过，不阻断文字对话
+//
+// 上游：对话页（点「朗读」或自动播报）、音乐狗子相关页。
+// 下游：BackendService.tts（后端 /tts）、just_audio、临时目录。
+//
+// 关键点：
+//   1. 三层降级：本地 IndexTTS → 云端（MiniMax / Cartesia）→ 系统 TTS；
+//      本类只负责第一层，失败时把 _ttsAvailable 置 false 并静默返回。
+//   2. speak() 会等待整段播放完成才返回（60s 超时保护），
+//      调用方若不想阻塞可不等 Future。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'dart:async';
@@ -14,6 +23,9 @@ import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:zhuyapp/core/services/backend_service.dart';
 
+/// TTS 服务：把文字交给本地 IndexTTS 合成并用 just_audio 播放。
+///
+/// 不可用时所有 speak 调用静默返回，绝不阻断文字对话链路。
 class TtsService {
   final AudioPlayer _player = AudioPlayer();
   bool _isInitialized = false;
@@ -27,6 +39,7 @@ class TtsService {
   bool get ttsAvailable => _ttsAvailable;
 
   // ── 初始化 ──
+  /// 订阅播放状态流以维护 [isPlaying]。重复调用幂等。
   Future<void> init() async {
     if (_isInitialized) return;
     _isInitialized = true;
@@ -98,6 +111,7 @@ class TtsService {
   }
 
   // ── 停止朗读 ──
+  /// 打断当前朗读（播放器异常时吞掉，保证状态复位）。
   Future<void> stop() async {
     try {
       await _player.stop();

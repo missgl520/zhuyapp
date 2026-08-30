@@ -36,10 +36,8 @@ import '../core/services/agnes_service.dart';
 import '../core/services/tts_service.dart';
 import '../core/services/cartesia_tts_service.dart';
 import '../core/services/mini_max_tts_service.dart';
-import '../core/services/lip_sync_service.dart';
 import '../core/services/asr_service.dart';
 import '../core/services/memory_service.dart';
-import '../widgets/live2d_controller.dart';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 数据模型（Hive 序列化专用）
@@ -349,24 +347,6 @@ final miniMaxTtsServiceProvider = Provider<MiniMaxTTSService>((ref) {
   return MiniMaxTTSService();
 });
 
-/// Lip Sync 口型值流
-///
-/// 原理：
-///   LipSyncService 内部有一个 StreamController，
-///   播放 TTS 时实时推送 0.0 ~ 1.0 的嘴型值。
-///   Live2D Widget 监听这个流，驱动 ParamMouthOpenY 参数。
-///
-/// 使用场景：ChatPage 里 Live2D 的口型动画
-final lipSyncStreamProvider = StreamProvider<double>((ref) {
-  final service = ref.watch(lipSyncServiceProvider);
-  return service.mouthStream;
-});
-
-/// 唇形同步服务（注入到 lipSyncStreamProvider）
-final lipSyncServiceProvider = Provider<LipSyncService>((ref) {
-  return LipSyncService();
-});
-
 /// TTS 开关：true = 开启语音播报
 final ttsEnabledProvider = StateProvider<bool>((ref) {
   final box = Hive.box('settings');
@@ -386,19 +366,10 @@ final asrListeningProvider = StateProvider<bool>((ref) => false);
 final asrResultProvider = StateProvider<String?>((ref) => null);
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Live2D
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-/// Live2D 控制器单例（管理 Live2D 模型加载、表情、动作）
-final live2dControllerProvider = Provider<ZhuaLive2DController>((ref) {
-  return ZhuaLive2DController.instance;
-});
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 情绪识别（Legacy 版，保留用于旧页面兼容）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/// 当前情绪（驱动 Live2D 表情切换）
+/// 当前情绪（顶栏情绪胶囊展示用）
 /// 新代码请用 presentation/providers/chat_provider.dart 里的 currentEmotionProvider
 final currentEmotionProvider = StateProvider<EmotionResult?>((ref) => null);
 

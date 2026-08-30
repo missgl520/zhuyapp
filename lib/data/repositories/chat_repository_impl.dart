@@ -11,6 +11,13 @@
 //   3) 在线 → 流式接收，结束后把完整 AI 回复写本地；
 //   4) 网络/临时错误 → 进 outbox，返回 offlineSaved 事件（不报硬错）；
 //   5) SyncEngine 联网后自动 flush outbox，成功后标记已同步。
+//
+// 上游：presentation/providers（对话状态管理）。
+// 下游：ChatService（SSE）、ChatLocalDataSource（本地库）、
+//       SyncEngine（补发与同步通知）、BackendService（好感度）。
+//
+// 关键点：错误分两类处理——网络/临时错误进发件箱（用户无感），
+//   认证/业务错误直接抛给 UI（需用户介入）。判断逻辑见 _isRecoverable。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import 'dart:async';
@@ -22,13 +29,23 @@ import '../datasources/chat_local_data_source.dart';
 import '../services/chat_service.dart';
 import '../../core/sync/sync_engine.dart';
 
+/// [ChatRepository] 的离线优先实现。
+///
+/// 本地库是事实来源：消息先落本地再发网络，失败则进发件箱等补发。
 class ChatRepositoryImpl implements ChatRepository {
+  /// [service] 可注入以便测试；不传则使用默认 [ChatService]。
   ChatRepositoryImpl({ChatService? service})
     : _service = service ?? ChatService();
 
   final ChatService _service;
+
+  /// 本地事实来源（对话历史 + 发件箱）。
   final ChatLocalDataSource _local = ChatLocalDataSource.instance;
 
+  /// 发送消息并接收流式回复，同时完成本地落库与离线兜底。
+  ///
+  /// 流中可能出现 token / emotion / affinity / done / offlineSaved / error
+  /// 六类事件；收到 offlineSaved 表示已存本地待联网补发，不应提示失败。
   @override
   Stream<ChatEvent> sendMessageStream({
     required String message,
@@ -91,6 +108,7 @@ class ChatRepositoryImpl implements ChatRepository {
 
   /// 网络类 / 临时错误 → 进发件箱重试；
   /// 认证 / 业务错误（如 401）→ 硬报错，需用户介入。
+  /// 判断错误是否可通过重试恢复（进发件箱）。
   bool _isRecoverable(String err) {
     if (err.contains('认证失败')) return false; // 401
     return err.contains('网络') ||
@@ -105,6 +123,7 @@ class ChatRepositoryImpl implements ChatRepository {
     return _service.detectEmotion(text);
   }
 
+  /// 取当前好感度；后端不可达时返回 null。
   @override
   Future<dynamic> getAffinity() async {
     try {
@@ -119,6 +138,7 @@ class ChatRepositoryImpl implements ChatRepository {
     return _service.isOnline();
   }
 
+  /// 从本地读取对话历史（UI 冷启动时立即展示用）。
   @override
   Future<List<Message>> loadLocalHistory({int limit = 200}) {
     return _local.getRecentHistory(limit: limit);

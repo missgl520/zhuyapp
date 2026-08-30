@@ -1,18 +1,16 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 3D 全身人形视图（替换 Live2D 的 2D 角色）
+// 3D 角色视图（VrmAvatarView）
 //
 // 用 model_viewer_plus 渲染 GLB，自动播放模型内嵌的走路动画剪辑。
-// 真骨骼驱动 → 膝盖弯曲 + 脚离地 + 手臂摆动，是 Live2D 物理上做不到的。
+// 真骨骼驱动 → 膝盖弯曲 + 脚离地 + 手臂摆动，是 2D 贴图方案做不到的。
 //
 // 加载策略（健壮，不会因缺文件崩）：
-//   1. 优先用「用户提供的动漫角色」kUserAvatarAsset（zhuyu_avatar.glb）
+//   1. 优先用指定的模型资产（默认竹笌少年 zhuyu_avatar.glb）
 //   2. 找不到则回退到 kFallbackAvatarAsset（CesiumMan，Khronos 官方样本，
-//      Apache-2.0 免费，自带 walk 动画）—— 仅作占位，避免人物"魔幻"。
+//      Apache-2.0 免费，自带 walk 动画）—— 仅作占位，避免人物区域空白。
 //
-// 切换人物（用户操作）：
-//   - 去 Sketchfab 下「anime-girl@Walking」（CC BY 4.0，VRoid+Mixamo 走路动画）
-//   - 把下到的 .glb 重命名为 zhuyu_avatar.glb 放进 assets/vrm_test/
-//   - 告诉我一声，我把 zhuyu_avatar.glb 加进 pubspec.yaml 的 assets 并重编即可
+// 渲染注意（Android）：依赖本地补丁副本 packages/model_viewer_plus，
+//   通过 Hybrid Composition 渲染，否则 WebGL canvas 静置后会停止出帧。
 //
 // 相机参数抽到常量，方便按新角色身高/站姿微调框景。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -20,9 +18,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:model_viewer_plus/model_viewer_plus.dart';
-
-/// 是否启用 3D 人形（true=用 model_viewer_plus 渲染 GLB；false=用旧 Live2D）。
-const bool kUseVrmAvatar = true;
 
 /// 程序化生成的竹笌 3D 少年人形（脚本生成，分部位配色 + 走路动画）。
 const String kUserAvatarAsset = 'assets/vrm_test/zhuyu_avatar.glb';
