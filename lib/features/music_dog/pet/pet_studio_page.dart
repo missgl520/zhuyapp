@@ -45,20 +45,23 @@ class PetStudioPage extends ConsumerStatefulWidget {
 /// 创作台页状态：持有 3 段 Tab 的控制器，并按 petStateProvider 渲染顶部状态栏。
 class _PetStudioPageState extends ConsumerState<PetStudioPage>
     with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+  late TabController _tabController; // 创作台/歌词库/宠物 三 Tab 控制器
 
+  /// 初始化 3 段 Tab 控制器，组件挂载时调用。
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
   }
 
+  /// 释放 Tab 控制器，组件移除时调用。
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
   }
 
+  /// 构建页面骨架：顶部宠物状态栏 + TabBar + 三段 TabBarView 内容。
   @override
   Widget build(BuildContext context) {
     final petStateAsync = ref.watch(petStateProvider);
@@ -116,6 +119,7 @@ class _PetStatusBar extends StatelessWidget {
   final ZhuyPetState state;
   const _PetStatusBar({required this.state});
 
+  /// 构建状态栏：🐕 图标 + 名称 + 心情 emoji + 好感度进度条。
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -199,11 +203,11 @@ class _CreationStudio extends StatefulWidget {
 
 /// 创作台状态：维护对话消息列表、输入框、歌词/音乐生成状态与 TTS 朗读。
 class _CreationStudioState extends State<_CreationStudio> {
-  final _controller = TextEditingController();
-  final _scrollController = ScrollController();
-  final List<_ChatBubble> _messages = [];
-  bool _isLoading = false;
-  bool _ttsEnabled = true;
+  final _controller = TextEditingController(); // 输入框文本控制器
+  final _scrollController = ScrollController(); // 对话列表滚动控制器
+  final List<_ChatBubble> _messages = []; // 对话消息列表（用户/狗子气泡）
+  bool _isLoading = false; // 是否正在等待狗子/后端回复
+  bool _ttsEnabled = true; // 是否开启语音播报
 
   // 歌词创作状态
   LyricsResult? _lastLyrics;
@@ -226,6 +230,7 @@ class _CreationStudioState extends State<_CreationStudio> {
     ('民谣风', '写首民谣风格的歌'),
   ];
 
+  /// 释放输入/滚动控制器，组件移除时调用。
   @override
   void dispose() {
     _controller.dispose();
@@ -452,6 +457,7 @@ class _CreationStudioState extends State<_CreationStudio> {
     );
   }
 
+  /// 构建创作台：歌词预览 + 对话列表 + 快捷语 + 输入栏。
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -591,6 +597,7 @@ class _LyricsPreview extends StatelessWidget {
     required this.isGenerating,
   });
 
+  /// 构建歌词预览卡片。
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -704,14 +711,15 @@ class _MusicPlayer extends StatefulWidget {
 
 /// 播放器状态：订阅 just_audio 的时长/进度/播放状态流，驱动 UI 与 seek。
 class _MusicPlayerState extends State<_MusicPlayer> {
-  final AudioPlayer _player = AudioPlayer();
-  bool _isPlaying = false;
-  Duration _position = Duration.zero;
-  Duration _duration = Duration.zero;
-  StreamSubscription<Duration>? _posSub;
-  StreamSubscription<Duration?>? _durSub;
-  StreamSubscription<PlayerState>? _stateSub;
+  final AudioPlayer _player = AudioPlayer(); // just_audio 播放器实例
+  bool _isPlaying = false; // 当前是否正在播放
+  Duration _position = Duration.zero; // 当前播放进度
+  Duration _duration = Duration.zero; // 音频总时长（流更新）
+  StreamSubscription<Duration>? _posSub; // 进度流订阅
+  StreamSubscription<Duration?>? _durSub; // 时长流订阅
+  StreamSubscription<PlayerState>? _stateSub; // 播放状态流订阅
 
+  /// 订阅时长/进度/播放状态三个流，挂载时调用。
   @override
   void initState() {
     super.initState();
@@ -726,6 +734,7 @@ class _MusicPlayerState extends State<_MusicPlayer> {
     });
   }
 
+  /// 取消流订阅并释放播放器。
   @override
   void dispose() {
     _posSub?.cancel();
@@ -750,6 +759,7 @@ class _MusicPlayerState extends State<_MusicPlayer> {
     }
   }
 
+  /// 构建播放器弹层：播放/暂停按钮 + 进度条/时长。
   @override
   Widget build(BuildContext context) {
     final total = _duration.inSeconds > 0 ? _duration.inSeconds : widget.duration;
@@ -824,6 +834,7 @@ class _ChatBubble extends StatelessWidget {
     this.isError = false,
   });
 
+  /// 构建对话气泡。
   @override
   Widget build(BuildContext context) {
     return Align(
@@ -887,6 +898,7 @@ class _ChatBubble extends StatelessWidget {
 class _TypingIndicator extends StatelessWidget {
   const _TypingIndicator();
 
+  /// 构建「正在输入」指示器。
   @override
   Widget build(BuildContext context) {
     return Align(
@@ -920,6 +932,7 @@ class _TypingIndicator extends StatelessWidget {
 
 /// 三个循环缩放的小圆点，构成打字指示器动画。
 class _DotBounce extends StatelessWidget {
+  /// 构建三个循环缩放的小圆点。
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -959,6 +972,7 @@ class _EmptyStudio extends StatelessWidget {
   final void Function(String) onPromptTap;
   const _EmptyStudio({required this.onPromptTap});
 
+  /// 构建空状态引导视图。
   @override
   Widget build(BuildContext context) {
     return Center(
@@ -1007,9 +1021,10 @@ class _LyricsLibrary extends StatefulWidget {
 
 /// 歌词库状态：加载并缓存歌词列表。
 class _LyricsLibraryState extends State<_LyricsLibrary> {
-  List<Map<String, dynamic>> _songs = [];
-  bool _loading = true;
+  List<Map<String, dynamic>> _songs = []; // 歌词列表（后端返回的原始 Map）
+  bool _loading = true; // 是否正在加载歌词列表
 
+  /// 挂载即拉取歌词列表。
   @override
   void initState() {
     super.initState();
@@ -1030,6 +1045,7 @@ class _LyricsLibraryState extends State<_LyricsLibrary> {
     }
   }
 
+  /// 构建歌词库列表或加载/空状态。
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -1126,6 +1142,7 @@ class _PetAloneScreen extends StatelessWidget {
   final ZhuyPetState petState;
   const _PetAloneScreen({required this.petState});
 
+  /// 构建「宠物」Tab：挂载可交互狗子并传入映射后的心情。
   @override
   Widget build(BuildContext context) {
     return ChattyDogPet(

@@ -116,7 +116,7 @@ class PetState {
 /// 全部语录为静态常量，按场景（基础 / 心情 / 交互反馈）分组；随机取值不依赖
 /// 任何外部状态，因此可安全在任意位置调用。
 class DogBarkLibrary {
-  static final _random = Random();
+  static final _random = Random(); // 语录随机取值源
 
   // 基础吠叫（随时冒出来）
   static const _randomBarks = [
@@ -246,10 +246,14 @@ class DogBarkLibrary {
 class DogPainter extends CustomPainter {
   /// 当前心情，决定配色与表情。
   final PetMood mood;
+  /// 垂直弹跳偏移（像素），由弹跳动画控制器驱动。
   final double bounceOffset;
+  /// 绕 Y 轴旋转弧度，预留 3D 透视效果（当前绘制未实际旋转）。
   final double rotationY;
+  /// 整体缩放系数，1 为原始大小，摇晃时短暂放大。
   final double scale;
 
+  /// 创建狗子绘制器，默认开心心情、无弹跳/旋转/缩放。
   DogPainter({
     this.mood = PetMood.happy,
     this.bounceOffset = 0,
@@ -288,6 +292,7 @@ class DogPainter extends CustomPainter {
     _drawLegs(canvas, center, radius);
   }
 
+  /// 绘制地面椭圆阴影（高斯模糊黑底），制造悬浮 3D 感。
   void _drawShadow(Canvas canvas, Offset center, double radius) {
     final shadowPaint = Paint()
       ..color = Colors.black.withValues(alpha: 0.15)
@@ -302,6 +307,7 @@ class DogPainter extends CustomPainter {
     );
   }
 
+  /// 用径向渐变绘制带高光的身体圆，模拟 3D 球体光照。
   void _drawBody(Canvas canvas, Offset center, double radius) {
     // 身体渐变（模拟3D球体）
     final bodyPaint = Paint()
@@ -330,6 +336,7 @@ class DogPainter extends CustomPainter {
     );
   }
 
+  /// 绘制头部圆与白色脸部区域，位置在身体上方。
   void _drawHead(Canvas canvas, Offset center, double radius) {
     final headCenter = Offset(center.dx, center.dy - radius * 0.3);
     final headRadius = radius * 0.55;
@@ -359,6 +366,7 @@ class DogPainter extends CustomPainter {
     canvas.drawOval(faceRect, facePaint);
   }
 
+  /// 用两个贝塞尔曲线路径绘制左右耳朵，并点上耳内高光。
   void _drawEars(Canvas canvas, Offset center, double radius) {
     final earPaint = Paint()
       ..color = _moodColor.withValues(alpha: 0.85);
@@ -401,6 +409,7 @@ class DogPainter extends CustomPainter {
     );
   }
 
+  /// 计算左右眼坐标并分别调用 [_drawEye] 绘制。
   void _drawEyes(Canvas canvas, Offset center, double radius) {
     final headCenter = Offset(center.dx, center.dy - radius * 0.3);
     final eyeRadius = radius * 0.12;
@@ -412,6 +421,7 @@ class DogPainter extends CustomPainter {
     _drawEye(canvas, Offset(headCenter.dx + radius * 0.22, eyeY), eyeRadius);
   }
 
+  /// 绘制单只眼睛：白色眼眶 + 心情色虹膜 + 瞳孔 + 眼神光。
   void _drawEye(Canvas canvas, Offset center, double radius) {
     // 眼眶
     final eyeBgPaint = Paint()..color = Colors.white;
@@ -435,6 +445,7 @@ class DogPainter extends CustomPainter {
     );
   }
 
+  /// 绘制鼻子、嘴巴（按心情变化）与两侧腮红。
   void _drawFace(Canvas canvas, Offset center, double radius) {
     final headCenter = Offset(center.dx, center.dy - radius * 0.3);
 
@@ -477,6 +488,7 @@ class DogPainter extends CustomPainter {
     );
   }
 
+  /// 按心情切换嘴型：开心微笑吐舌 / 兴奋张嘴 / 犯困直线 / 生气撇嘴 / 其他普通弧。
   void _drawMouth(Canvas canvas, Offset headCenter, double radius) {
     final mouthY = headCenter.dy + radius * 0.2;
     final mouthPaint = Paint()
@@ -554,6 +566,7 @@ class DogPainter extends CustomPainter {
     }
   }
 
+  /// 用时间驱动的 sin 摆动绘制尾巴，制造摇尾动画。
   void _drawTail(Canvas canvas, Offset center, double radius) {
     final tailPaint = Paint()..color = _moodColor.withValues(alpha: 0.85);
     
@@ -581,6 +594,7 @@ class DogPainter extends CustomPainter {
     canvas.drawPath(tailPath, tailPaint);
   }
 
+  /// 绘制前后四条圆角矩形腿，前腿略亮、后腿略隐。
   void _drawLegs(Canvas canvas, Offset center, double radius) {
     final legPaint = Paint()..color = _moodColor.withValues(alpha: 0.85);
     final legWidth = radius * 0.12;
@@ -865,14 +879,15 @@ class ChattyDogPet extends StatefulWidget {
 /// 狗子主组件状态：管理弹跳/摇晃动画控制器、定时吠叫定时器与宠物状态。
 class _ChattyDogPetState extends State<ChattyDogPet>
     with TickerProviderStateMixin {
-  PetState _state = PetState();
-  Timer? _barkTimer;
-  late AnimationController _bounceController;
-  late AnimationController _shakeController;
-  late Animation<double> _bounceAnimation;
-  String? _currentBubbleText;
-  bool _showBubble = false;
+  PetState _state = PetState(); // 当前宠物状态（心情/动作/好感度/吠叫数等）
+  Timer? _barkTimer; // 定时吠叫循环的计时器，dispose 时取消
+  late AnimationController _bounceController; // 持续循环弹跳动画控制器
+  late AnimationController _shakeController; // 长按摇晃一次性动画控制器
+  late Animation<double> _bounceAnimation; // 弹跳偏移补间（-8~8 像素）
+  String? _currentBubbleText; // 当前气泡显示的文本，null 表示无
+  bool _showBubble = false; // 是否显示对话气泡
 
+  /// 初始化动画控制器与定时吠叫循环，组件挂载时调用一次。
   @override
   void initState() {
     super.initState();
@@ -894,6 +909,7 @@ class _ChattyDogPetState extends State<ChattyDogPet>
     _startBarkLoop();
   }
 
+  /// 当父组件传入的 triggerBark / triggerMood 变化时立即驱动狗子响应。
   @override
   void didUpdateWidget(ChattyDogPet oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -983,6 +999,7 @@ class _ChattyDogPetState extends State<ChattyDogPet>
     });
   }
 
+  /// 释放计时器与动画控制器，组件从树移除时调用。
   @override
   void dispose() {
     _barkTimer?.cancel();
@@ -991,6 +1008,7 @@ class _ChattyDogPetState extends State<ChattyDogPet>
     super.dispose();
   }
 
+  /// 构建宠物主界面：顶部心情栏 + 对话气泡 + 宠物主体 + 统计 + 交互按钮。
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -1131,6 +1149,7 @@ class _ChattyDogPetState extends State<ChattyDogPet>
     );
   }
 
+  // 各心情对应的中文名 / emoji / 标签配色，供顶部心情 chip 使用。
   static const _moodNames = {
     PetMood.happy: (name: '开心', emoji: '😄', color: Color(0xFFFFB347)),
     PetMood.excited: (name: '兴奋', emoji: '🤩', color: Color(0xFFFF6B6B)),
@@ -1140,6 +1159,7 @@ class _ChattyDogPetState extends State<ChattyDogPet>
     PetMood.angry: (name: '生气', emoji: '😠', color: Color(0xFFFF8C42)),
   };
 
+  // 各心情对应的页面背景渐变起止色，供主组件容器背景使用。
   static const _moodGradientColors = {
     PetMood.happy: [Color(0xFFFFF3E0), Color(0xFFFFE0B2)],
     PetMood.excited: [Color(0xFFFFEBEE), Color(0xFFFFCDD2)],
@@ -1161,10 +1181,12 @@ class ChattyDogDemo extends StatefulWidget {
   State<ChattyDogDemo> createState() => _ChattyDogDemoState();
 }
 
+/// 话痨狗演示页状态：维护预览用的当前心情与音乐播放开关。
 class _ChattyDogDemoState extends State<ChattyDogDemo> {
-  PetMood _currentMood = PetMood.happy;
-  bool _isPlaying = false;
+  PetMood _currentMood = PetMood.happy; // 演示用当前选中心情
+  bool _isPlaying = false; // 演示用音乐播放/暂停开关
 
+  /// 构建演示页：顶部可切心情/播音乐的 AppBar + 宠物主组件。
   @override
   Widget build(BuildContext context) {
     return Scaffold(
