@@ -23,6 +23,7 @@ import 'package:go_router/go_router.dart';
 import '../../pages/splash/splash_page.dart';
 import '../../pages/chat/chat_page.dart';
 import '../../pages/settings/memory_history_page.dart';
+import '../../pages/settings/settings_page.dart';
 import '../../pages/voice/voice_call_page.dart';
 import '../../pages/legal/legal_page.dart';
 import '../../pages/settings/info_modules_page.dart';
@@ -103,6 +104,13 @@ final routerProvider = Provider<GoRouter>((ref) {
           final type = state.uri.queryParameters['type'] ?? 'version-intro';
           return InfoModulesPage(type: type);
         },
+      ),
+
+      // 设置页（后端地址 / 情感角色 / 唤醒词 / 清除记忆）
+      GoRoute(
+        path: '/settings',
+        name: 'settings',
+        builder: (context, state) => const SettingsPage(),
       ),
       // 3D 角色独立全屏页（二级程序：把「狗子」放在独立全屏查看）
       GoRoute(
